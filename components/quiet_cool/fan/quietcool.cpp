@@ -209,13 +209,6 @@ void QuietCool::send(QuietCoolSpeed speed, QuietCoolDuration duration) {
     ESP_LOGI(TAG, "send(0x%02x, %0x%02x)", speed, duration);
     const uint8_t cmd_code = getCommand(speed, duration);
     ESP_LOGI(TAG, "cmd=%02x ", cmd_code);
-    if (cmd_code == 0xB0) {
-        // Captures from the physical remote show a 0x66 pre-command ahead of OFF.
-        // Sending it here avoids requiring a second OFF press.
-        ESP_LOGI(TAG, "sending off pre-command 0x66");
-        sendPacket(0x66);
-        delay(18);
-    }
     sendPacket(cmd_code);
 }
 
