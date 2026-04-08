@@ -31,21 +31,29 @@ namespace esphome {
             ESP_LOGD(TAG, "Control called: state=%s, speed=%s", 
                      call.get_state().has_value() ? (*call.get_state() ? "ON" : "OFF") : "<unchanged>",
                      call.get_speed().has_value() ? (std::to_string(inc_speed)).c_str() : "<unchanged>");
-            bool old_state = this->state;
             if (call.get_state().has_value())
                 this->state = *call.get_state();
 
+            // Your captured remote frames show OFF uses command byte 0xB0, not 0x90.
+            // That means OFF must map to HIGH|OFF rather than LOW|OFF.
             QuietCoolSpeed qcspd = QUIETCOOL_SPEED_LOW;
             QuietCoolDuration qcdur = QUIETCOOL_DURATION_ON;
-            if (call.get_speed().has_value()) {
+            if (!this->state) {
+                qcspd = QUIETCOOL_SPEED_HIGH;
+                qcdur = QUIETCOOL_DURATION_OFF;
+            } else if (call.get_speed().has_value()) {
                 this->speed_ = *call.get_speed();
-                if (this->speed_ < 0.5) qcdur = QUIETCOOL_DURATION_OFF;
+                if (this->speed_ < 0.5) {
+                    qcspd = QUIETCOOL_SPEED_HIGH;
+                    qcdur = QUIETCOOL_DURATION_OFF;
+                }
                 else if (this->speed_ < 1.5) qcspd = QUIETCOOL_SPEED_LOW;
                 else if (this->speed_ < 2.5) qcspd = QUIETCOOL_SPEED_MEDIUM;
                 else if (this->speed_ < 3.5) qcspd = QUIETCOOL_SPEED_HIGH;
             } else {
-		qcdur = QUIETCOOL_DURATION_OFF;
-	    }
+                qcspd = QUIETCOOL_SPEED_HIGH;
+                qcdur = QUIETCOOL_DURATION_OFF;
+            }
             if (this->qc_) this->qc_->send(qcspd, qcdur);
 
 
