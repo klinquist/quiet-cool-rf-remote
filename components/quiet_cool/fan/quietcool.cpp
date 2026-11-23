@@ -84,10 +84,14 @@ void QuietCool::configureTransmit() {
     // Preserve the working packet-mode transmitter. The captured QuietCool
     // preamble/sync bytes are part of the FIFO payload, not CC1101 framing.
     ELECHOUSE_cc1101.setSidle();
+    ELECHOUSE_cc1101.setPktFormat(0);
     ELECHOUSE_cc1101.setSyncMode(0);
     ELECHOUSE_cc1101.setLengthConfig(0);
     ELECHOUSE_cc1101.setPacketLength(20);
     ELECHOUSE_cc1101.setAppendStatus(false);
+    // SendData waits on the packet-complete signal; learning changes GDO0 to
+    // synchronous serial data, so restore the packet-mode GDO0 function here.
+    ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x06);
 }
 
 void QuietCool::configureReceive() {
@@ -106,6 +110,8 @@ void QuietCool::configureReceive() {
     ELECHOUSE_cc1101.setPQT(0);
     ELECHOUSE_cc1101.setAdrChk(0);
     ELECHOUSE_cc1101.setAppendStatus(true);
+    // Restore the packet-complete signal after synchronous learning mode.
+    ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x06);
 }
 
 void QuietCool::startListening() {
@@ -382,10 +388,12 @@ void QuietCool::sendPacket(const uint8_t cmd_code) {
     memcpy(full_cmd + SYNC_LEN + 7, &cmd_code, 1);
     memcpy(full_cmd + SYNC_LEN + 8, &cmd_code, 1);
     size_t total_len = SYNC_LEN + 7 + CMD_CODE_LEN+padding_len;
+    ESP_LOGI(TAG, "Transmitting QuietCool command 0x%02X in three repeats", cmd_code);
     for (int i = 0; i < 3; i++) {
         sendRawData(full_cmd, total_len);
         delay(18);
     }
+    ESP_LOGI(TAG, "Transmission sequence complete; restoring receive mode");
 }
 
 const uint8_t QuietCool::getCommand(QuietCoolSpeed speed, QuietCoolDuration duration) {
