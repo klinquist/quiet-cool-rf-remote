@@ -83,7 +83,7 @@ def validate_remote_id(value):
 
 
 def validate_remote_ids(value):
-    return [validate_remote_id(remote_id) for remote_id in cv.ensure_list(value)]
+    return cv.ensure_list(validate_remote_id)(value)
 
 
 CONFIG_SCHEMA = fan.fan_schema(QuietCoolFan).extend(
