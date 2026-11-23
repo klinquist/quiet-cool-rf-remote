@@ -127,7 +127,7 @@ namespace esphome {
             if (this->status_polling_switch_ != nullptr)
                 this->status_polling_switch_->publish_state(this->status_polling_enabled_);
             if (this->timer_select_ != nullptr)
-                this->timer_select_->publish_state(0);
+                this->timer_select_->publish_state(static_cast<size_t>(0));
             this->publish_timer_remaining_();
             this->set_learning_status_(this->has_remote_id_ ? "Ready" : "Not Configured");
             if (this->status_polling_enabled_)
