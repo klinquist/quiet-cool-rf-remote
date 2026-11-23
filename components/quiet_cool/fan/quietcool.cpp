@@ -442,7 +442,9 @@ void QuietCool::sendPacket(const uint8_t cmd_code) {
     memcpy(full_cmd + SYNC_LEN + 7, &cmd_code, 1);
     memcpy(full_cmd + SYNC_LEN + 8, &cmd_code, 1);
     size_t total_len = SYNC_LEN + 7 + CMD_CODE_LEN+padding_len;
-    ESP_LOGI(TAG, "Transmitting QuietCool command 0x%02X in three repeats", cmd_code);
+    ESP_LOGI(TAG, "Transmitting QuietCool command 0x%02X as remote ID %02X:%02X:%02X:%02X:%02X:%02X:%02X in three repeats",
+             cmd_code, remote_id[0], remote_id[1], remote_id[2], remote_id[3],
+             remote_id[4], remote_id[5], remote_id[6]);
     for (int i = 0; i < 3; i++) {
         sendRawData(full_cmd, total_len);
         delay(18);
@@ -605,7 +607,9 @@ void QuietCool::sendCommand(uint8_t command_code) {
     if (mode_ == RadioMode::LEARNING)
         stopLearning();
 
-    ESP_LOGI(TAG, "Sending raw QuietCool command 0x%02X", command_code);
+    ESP_LOGI(TAG, "Sending QuietCool command 0x%02X as remote ID %02X:%02X:%02X:%02X:%02X:%02X:%02X",
+             command_code, remote_id[0], remote_id[1], remote_id[2], remote_id[3],
+             remote_id[4], remote_id[5], remote_id[6]);
     listening_ = false;
     mode_ = RadioMode::TRANSMITTING;
     detachInterrupt(digitalPinToInterrupt(gdo0_pin));
