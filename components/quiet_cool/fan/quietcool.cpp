@@ -422,10 +422,20 @@ bool QuietCool::receive(QuietCoolCommand &command) {
     ELECHOUSE_cc1101.SpiReadBurstReg(CC1101_RXFIFO, frame, expected);
     restartReceiver();
 
+    const uint32_t now = millis();
+    const bool awaiting_query_response =
+        static_cast<int32_t>(this->query_response_until_ - now) > 0;
+    const bool matching_id = memcmp(frame, remote_id + 2, REMOTE_ID_LEN - 2) == 0;
+    if (!this->remote_listening_enabled_ && !awaiting_query_response) {
+        if (matching_id)
+            ESP_LOGD(TAG, "Ignoring RF frame 0x%02X while physical remote listening is disabled",
+                     frame[REMOTE_ID_LEN - 2]);
+        return false;
+    }
+
     command.rssi_dbm = decodeRssi(frame[RX_PAYLOAD_LEN]);
     command.lqi = frame[RX_PAYLOAD_LEN + 1] & 0x7F;
     command.code = frame[REMOTE_ID_LEN - 2];
-    const bool matching_id = memcmp(frame, remote_id + 2, REMOTE_ID_LEN - 2) == 0;
     const bool decoded = decodePayload(frame, command);
     if (matching_id && this->rx_activity_sensor_ != nullptr) {
         const uint8_t command_code = frame[REMOTE_ID_LEN - 2];
@@ -457,7 +467,6 @@ bool QuietCool::receive(QuietCoolCommand &command) {
     if (!decoded)
         return false;
 
-    const uint32_t now = millis();
     const bool duplicate = command.code == last_rx_code_ &&
                            static_cast<uint32_t>(now - last_rx_at_) < RX_DEDUP_WINDOW_MS;
     last_rx_code_ = command.code;
@@ -658,6 +667,12 @@ void QuietCool::sendCommand(uint8_t command_code) {
     configureTransmit();
     sendPacket(command_code);
     startListening();
+    if (command_code == 0x66) {
+        // The fan reports its current state after a WAKE query. Keep this window
+        // open even when unsolicited physical-remote listening is disabled.
+        this->query_response_until_ = millis() + 2000;
+        ESP_LOGI(TAG, "Listening for fan status response to 0x66 for 2 seconds");
+    }
 }
 
 }  // namespace quiet_cool

@@ -1,6 +1,6 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import button, fan, number, spi, text_sensor
+from esphome.components import button, fan, number, spi, switch, text_sensor
 from esphome.const import CONF_CLK_PIN, CONF_ID, CONF_MISO_PIN, CONF_MOSI_PIN, CONF_NAME, CONF_OUTPUT_ID, CONF_SPEED_COUNT
 from esphome.core import CORE
 from .. import quiet_cool_ns
@@ -14,6 +14,7 @@ CONF_LEARN_BUTTON = "learn_button"
 CONF_LEARNING_STATUS = "learning_status"
 CONF_RX_PACKET_SENSOR = "rx_packet_sensor"
 CONF_TEST_BUTTONS = "test_buttons"
+CONF_REMOTE_LISTENER = "remote_listener"
 CONF_COMMAND = "command"
 CONF_FREQUENCY_CONTROLS = "frequency_controls"
 CONF_CENTER_NUMBER = "center_freq_mhz"
@@ -22,6 +23,9 @@ CONF_DEVIATION_NUMBER = "deviation_khz"
 QuietCoolFan = quiet_cool_ns.class_("QuietCoolFan", cg.Component, fan.Fan, spi.SPIDevice)
 QuietCoolLearnButton = quiet_cool_ns.class_("QuietCoolLearnButton", button.Button)
 QuietCoolTestCommandButton = quiet_cool_ns.class_("QuietCoolTestCommandButton", button.Button)
+QuietCoolRemoteListenerSwitch = quiet_cool_ns.class_(
+    "QuietCoolRemoteListenerSwitch", switch.Switch
+)
 QuietCoolLearningStatus = quiet_cool_ns.class_(
     "QuietCoolLearningStatus", cg.Component, text_sensor.TextSensor
 )
@@ -34,7 +38,7 @@ DEVIATION_NUMBER_SCHEMA = number.number_schema(
 ).extend({cv.Optional(CONF_NAME, default="QuietCool Frequency Deviation"): cv.string})
 
 DEPENDENCIES = ["spi"]
-AUTO_LOAD = ["button", "number", "text_sensor"]
+AUTO_LOAD = ["button", "number", "switch", "text_sensor"]
 FINAL_VALIDATE_SCHEMA = spi.final_validate_device_schema(
     "quiet_cool", require_mosi=True, require_miso=True
 )
@@ -59,6 +63,11 @@ CONFIG_SCHEMA = fan.fan_schema(QuietCoolFan).extend(
         cv.Optional(CONF_LEARN_BUTTON, default={}): button.button_schema(
             QuietCoolLearnButton, entity_category="config"
         ).extend({cv.Optional(CONF_NAME, default="QuietCool Learn Remote"): cv.string}),
+        cv.Optional(CONF_REMOTE_LISTENER, default={}): switch.switch_schema(
+            QuietCoolRemoteListenerSwitch, entity_category="config"
+        ).extend(
+            {cv.Optional(CONF_NAME, default="Listen to Physical Remote"): cv.string}
+        ),
         cv.Optional(CONF_TEST_BUTTONS): cv.ensure_list(
             button.button_schema(
                 QuietCoolTestCommandButton, entity_category="config"
@@ -151,6 +160,10 @@ async def to_code(config):
 
     learn_button = await button.new_button(config[CONF_LEARN_BUTTON])
     cg.add(learn_button.set_parent(var))
+
+    listener_switch = await switch.new_switch(config[CONF_REMOTE_LISTENER])
+    cg.add(listener_switch.set_parent(var))
+    cg.add(var.set_remote_listener_switch(listener_switch))
 
     for test_button_config in config.get(CONF_TEST_BUTTONS, []):
         test_button = await button.new_button(test_button_config)

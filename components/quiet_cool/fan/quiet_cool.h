@@ -4,6 +4,7 @@
 #include "esphome/core/component.h"
 #include "esphome/components/spi/spi.h"
 #include "esphome/components/button/button.h"
+#include "esphome/components/switch/switch.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/components/number/number.h"
 #include "esphome/core/preferences.h"
@@ -54,6 +55,10 @@ namespace esphome {
             void set_speed_count(uint8_t speed_count) { this->speed_count_ = speed_count; }
             void set_learning_status_sensor(text_sensor::TextSensor *sensor) { this->learning_status_sensor_ = sensor; }
             void set_rx_activity_sensor(text_sensor::TextSensor *sensor) { this->rx_activity_sensor_ = sensor; }
+            void set_remote_listener_switch(switch_::Switch *listener_switch) {
+                this->remote_listener_switch_ = listener_switch;
+            }
+            void set_remote_listening(bool enabled);
             void start_learning();
             void send_test_command(uint8_t command_code);
             bool is_learning() const { return this->learning_active_; }
@@ -87,6 +92,7 @@ namespace esphome {
             number::Number *deviation_number_{nullptr};
             text_sensor::TextSensor *learning_status_sensor_{nullptr};
             text_sensor::TextSensor *rx_activity_sensor_{nullptr};
+            switch_::Switch *remote_listener_switch_{nullptr};
 
             uint8_t csn_pin_{};
             uint8_t gdo0_pin_{};
@@ -106,6 +112,7 @@ namespace esphome {
             learning::Confirmation learning_confirmation_{};
             bool remote_id_configured_{false};
             bool has_remote_id_{false};
+            bool remote_listening_enabled_{true};
             bool learning_active_{false};
             uint32_t learning_started_at_{0};
             uint32_t learning_progress_log_at_{0};
@@ -142,6 +149,15 @@ namespace esphome {
          private:
             QuietCoolFan *parent_{nullptr};
             uint8_t command_{0x66};
+        };
+
+        class QuietCoolRemoteListenerSwitch : public switch_::Switch {
+         public:
+            void set_parent(QuietCoolFan *parent) { this->parent_ = parent; }
+         protected:
+            void write_state(bool state) override;
+         private:
+            QuietCoolFan *parent_{nullptr};
         };
 
         class QuietCoolLearningStatus : public Component, public text_sensor::TextSensor {

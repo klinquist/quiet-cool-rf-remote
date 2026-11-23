@@ -71,6 +71,8 @@ class QuietCool {
     uint32_t last_rx_at_{0};
     uint32_t rx_activity_count_{0};
     text_sensor::TextSensor *rx_activity_sensor_{nullptr};
+    bool remote_listening_enabled_{true};
+    uint32_t query_response_until_{0};
 
     enum class RadioMode : uint8_t { NORMAL_RX, TRANSMITTING, LEARNING, UNCONFIGURED };
     RadioMode mode_{RadioMode::UNCONFIGURED};
@@ -104,6 +106,7 @@ class QuietCool {
     bool begin(bool has_remote_id);
     void send(QuietCoolSpeed speed, QuietCoolDuration duration);
     void sendCommand(uint8_t command_code);
+    void setRemoteListeningEnabled(bool enabled) { this->remote_listening_enabled_ = enabled; }
     void setRemoteId(const uint8_t *remote_id);
     void setRxActivitySensor(text_sensor::TextSensor *sensor) { this->rx_activity_sensor_ = sensor; }
     bool receive(QuietCoolCommand &command);

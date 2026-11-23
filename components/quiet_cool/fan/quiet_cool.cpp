@@ -115,6 +115,9 @@ namespace esphome {
                 this->set_learning_status_("Error");
                 return;
             }
+            this->qc_->setRemoteListeningEnabled(this->remote_listening_enabled_);
+            if (this->remote_listener_switch_ != nullptr)
+                this->remote_listener_switch_->publish_state(this->remote_listening_enabled_);
             this->set_learning_status_(this->has_remote_id_ ? "Ready" : "Not Configured");
             ESP_LOGD(TAG, "QuietCool initialized");
         }
@@ -390,6 +393,14 @@ namespace esphome {
             this->qc_->sendCommand(command_code);
         }
 
+        void QuietCoolFan::set_remote_listening(bool enabled) {
+            this->remote_listening_enabled_ = enabled;
+            if (this->qc_ != nullptr)
+                this->qc_->setRemoteListeningEnabled(enabled);
+            ESP_LOGI(TAG, "Physical remote listening %s%s", enabled ? "enabled" : "disabled",
+                     enabled ? "" : "; 0x66 status-query replies will still be accepted briefly");
+        }
+
         void QuietCoolFan::finish_learning_(const std::array<uint8_t, 7> &id) {
             const auto previous_id = this->remote_id_;
             this->remote_id_ = id;
@@ -418,6 +429,12 @@ namespace esphome {
         void QuietCoolTestCommandButton::press_action() {
             if (this->parent_ != nullptr)
                 this->parent_->send_test_command(this->command_);
+        }
+
+        void QuietCoolRemoteListenerSwitch::write_state(bool state) {
+            if (this->parent_ != nullptr)
+                this->parent_->set_remote_listening(state);
+            this->publish_state(state);
         }
 
         void QuietCoolFrequencyNumber::control(float value) {

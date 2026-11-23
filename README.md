@@ -127,6 +127,10 @@ fan:
     # deviation_khz: 10
     # If center_freq_mhz or deviation_khz is omitted, its Home Assistant
     # tuning control is created automatically. Explicit YAML values stay fixed.
+    # Home Assistant Configuration switch: turn off to ignore unsolicited
+    # physical remote frames while testing fan replies to a 0x66 query.
+    # remote_listener:
+    #   name: "Listen to Physical Remote"
     # To customize control names, or explicitly choose controls:
     # frequency_controls:
     #   center_freq_mhz:
@@ -158,6 +162,7 @@ fan:
 | `center_freq_mhz` | No       | float        | 433.897    | Center frequency in MHz for RF transmission.                                |
 | `deviation_khz`   | No       | float        | 10         | Frequency deviation (spread) in kHz for FSK modulation.                     |
 | `frequency_controls` | No    | map          | automatic  | Optional overrides for Home Assistant tuning controls. By default, a control is created for each frequency setting omitted from YAML. The controls appear under Configuration. An explicit map selects the controls and can set their names; an empty map disables them. |
+| `remote_listener` | No       | entity       | enabled   | Creates a Configuration switch to enable/ignore unsolicited physical-remote frames. When disabled, replies are still accepted for 2 seconds after sending command `0x66`. |
 | `learn_button`    | No       | entity       | enabled   | Creates the `QuietCool Learn Remote` button under Configuration.            |
 | `learning_status` | No       | entity       | enabled   | Creates the learning status text sensor under Diagnostics.                   |
 | `rx_packet_sensor` | No      | entity       | enabled   | Creates the `QuietCool RF Activity` diagnostic sensor. Each matching remote frame reports its command byte, including unknown commands. |
@@ -173,9 +178,17 @@ spi:
 ```
 
 Raw RF test buttons transmit the configured byte twice in each packet and
-repeat the packet three times. They use the active remote ID and do not change
-the fan entity's Home Assistant state. This can help check whether the CC1101
-transmitter reaches the fan independently of the normal speed command mapping.
+repeat the packet three times. They use the active remote ID; transmitting a
+test command does not directly change the fan entity's state. If command `0x66`
+elicits a decodable status reply, that reply can update the fan state. This can
+help check whether the CC1101 transmitter reaches the fan independently of the
+normal speed command mapping.
+The `Listen to Physical Remote` switch defaults to on. Turn it off to prevent
+unsolicited transmissions from the handheld remote from changing the Home
+Assistant fan state. The radio still receives during a short response window
+after a test button sends `0x66`, so you can inspect the fan's reply without
+the handheld remote's idle-time traffic being applied as state changes. Turn
+the switch back on to resume normal physical-remote tracking.
 
 ## Automatic Remote Learning
 
