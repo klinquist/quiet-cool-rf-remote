@@ -96,10 +96,14 @@ CONFIG_SCHEMA = fan.fan_schema(QuietCoolFan).extend(
         cv.Optional(CONF_FREQ_MHZ): cv.float_,
         cv.Optional(CONF_DEVIATION_KHZ): cv.float_,
         cv.Optional(CONF_LEARN_BUTTON, default={}): button.button_schema(
-            QuietCoolLearnButton, entity_category="config"
+            QuietCoolLearnButton,
+            icon="mdi:handshake-outline",
+            entity_category="config",
         ).extend({cv.Optional(CONF_NAME, default="QuietCool Learn Remote"): cv.string}),
         cv.Optional(CONF_REMOTE_LISTENER): switch.switch_schema(
-            QuietCoolRemoteListenerSwitch, entity_category="config"
+            QuietCoolRemoteListenerSwitch,
+            icon="mdi:ear-hearing",
+            entity_category="config",
         ).extend(
             {
                 cv.Optional(CONF_NAME, default="Listen to Physical Remote"): cv.string,
@@ -113,7 +117,9 @@ CONFIG_SCHEMA = fan.fan_schema(QuietCoolFan).extend(
                     min=10, max=3600
                 ),
                 cv.Optional(CONF_POLL_SWITCH, default={}): switch.switch_schema(
-                    QuietCoolStatusPollingSwitch, entity_category="config"
+                    QuietCoolStatusPollingSwitch,
+                    icon="mdi:refresh-auto",
+                    entity_category="config",
                 ).extend(
                     {cv.Optional(CONF_NAME, default="Poll Fan Status"): cv.string}
                 ),
@@ -123,11 +129,14 @@ CONFIG_SCHEMA = fan.fan_schema(QuietCoolFan).extend(
         cv.Optional(CONF_TIMER): cv.Schema(
             {
                 cv.Optional(CONF_TIMER_CONTROL, default={}): select.select_schema(
-                    QuietCoolTimerSelect, entity_category="config"
+                    QuietCoolTimerSelect,
+                    icon="mdi:timer-outline",
+                    entity_category="config",
                 ).extend(
                     {cv.Optional(CONF_NAME, default="QuietCool Timer"): cv.string}
                 ),
                 cv.Optional(CONF_TIMER_REMAINING, default={}): sensor.sensor_schema(
+                    icon="mdi:timer-sand",
                     unit_of_measurement="h",
                     accuracy_decimals=2,
                     device_class=DEVICE_CLASS_DURATION,
