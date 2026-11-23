@@ -1,6 +1,10 @@
 #pragma once
+#include <array>
 #include <stdint.h>
 #include <stddef.h>
+#include <vector>
+#include "esphome/components/text_sensor/text_sensor.h"
+#include "quietcool_learning.h"
 
 /*
   CC1101 Pin Connections:
@@ -50,6 +54,7 @@ class QuietCool {
     static constexpr size_t RX_PAYLOAD_LEN = REMOTE_ID_LEN - 2 + 2;
     static constexpr size_t RX_STATUS_LEN = 2;
     static constexpr uint32_t RX_DEDUP_WINDOW_MS = 350;
+    static constexpr size_t LEARNING_CAPTURE_BITS = 512;
 
     uint8_t csn_pin;
     uint8_t gdo0_pin;
@@ -61,13 +66,29 @@ class QuietCool {
     float   center_freq_mhz;
     float   deviation_khz;
     bool initialized_{false};
+    bool remote_id_valid_{false};
     volatile bool listening_{false};
     volatile bool packet_ready_{false};
     uint8_t last_rx_code_{0};
     uint32_t last_rx_at_{0};
+    std::array<uint8_t, REMOTE_ID_LEN> last_rx_remote_id_{};
+    std::vector<std::array<uint8_t, REMOTE_ID_LEN>> additional_remote_ids_{};
+    uint32_t rx_activity_count_{0};
+    text_sensor::TextSensor *rx_activity_sensor_{nullptr};
+    bool remote_listening_enabled_{true};
+    uint32_t query_response_until_{0};
+
+    enum class RadioMode : uint8_t { NORMAL_RX, TRANSMITTING, LEARNING, UNCONFIGURED };
+    RadioMode mode_{RadioMode::UNCONFIGURED};
+    volatile uint8_t captured_bits_[LEARNING_CAPTURE_BITS]{};
+    volatile uint16_t capture_head_{0};
+    volatile uint16_t capture_count_{0};
+    volatile uint32_t capture_total_{0};
+    uint32_t last_learning_frame_end_{0};
 
     static QuietCool *active_receiver_;
     static void handleGdo0Interrupt();
+    static void handleLearningClockInterrupt();
 
     bool initCC1101();
     uint8_t readChipVersion();
@@ -79,14 +100,32 @@ class QuietCool {
     void configureReceive();
     void startListening();
     void restartReceiver();
-    bool decodePayload(const uint8_t *payload, QuietCoolCommand &command) const;
+    void configureLearning();
+    void stopLearning();
+    bool matchesRemoteId(const uint8_t *payload, uint8_t *matched_remote_id) const;
+    bool decodePayload(const uint8_t *payload, QuietCoolCommand &command,
+                       const uint8_t *matched_remote_id) const;
     static int8_t decodeRssi(uint8_t raw_rssi);
 
   public:
     QuietCool(uint8_t csn, uint8_t gdo0, uint8_t gdo2, uint8_t sck, uint8_t miso, uint8_t mosi, const uint8_t* remote_id_in, float freq_mhz, float deviation_khz);
-    void begin();
+    bool begin(bool has_remote_id);
     void send(QuietCoolSpeed speed, QuietCoolDuration duration);
+    void sendCommand(uint8_t command_code);
+    void setRemoteListeningEnabled(bool enabled) { this->remote_listening_enabled_ = enabled; }
+    void setRemoteId(const uint8_t *remote_id);
+    void setAdditionalRemoteIds(const std::vector<std::array<uint8_t, REMOTE_ID_LEN>> &remote_ids) {
+        this->additional_remote_ids_ = remote_ids;
+    }
+    void setRxActivitySensor(text_sensor::TextSensor *sensor) { this->rx_activity_sensor_ = sensor; }
     bool receive(QuietCoolCommand &command);
+    bool startLearning();
+    void cancelLearning();
+    bool captureLearningFrame(learning::Frame &frame);
+    void setFrequencies(float center_freq_mhz, float deviation_khz);
+    void getLearningCaptureStats(uint32_t &total_edges, uint16_t &buffered_bits);
+    void logLearningCapture();
+    bool is_learning() const { return mode_ == RadioMode::LEARNING; }
 };
 
 }  // namespace quiet_cool
