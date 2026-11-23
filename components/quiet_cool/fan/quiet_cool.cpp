@@ -231,9 +231,8 @@ namespace esphome {
                                 this->learning_valid_frames_++;
                                 const int8_t freq_est = this->qc_->readFrequencyEstimate();
                                 const float offset_khz = static_cast<float>(freq_est) * 26.0f / 16.384f;
-                                ESP_LOGI(TAG, "CC1101 carrier estimate: FREQEST=%d, offset=%+.1f kHz; suggested center near %.3f MHz (configured %.3f MHz)",
+                                ESP_LOGI(TAG, "CC1101 receiver-relative offset: FREQEST=%d, estimate=%+.1f kHz from configured tuning %.3f MHz (not an absolute carrier-frequency measurement)",
                                          static_cast<int>(freq_est), offset_khz,
-                                         this->center_freq_mhz + offset_khz / 1000.0f,
                                          this->center_freq_mhz);
                                 ESP_LOGD(TAG, "Decoded valid RF frame %u: ID %02X:%02X:%02X:%02X:%02X:%02X:%02X command=0x%02X prefix_errors=%u",
                                          static_cast<unsigned>(this->learning_valid_frames_),

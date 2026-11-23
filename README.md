@@ -219,9 +219,12 @@ operation and GDO configuration](https://www.ti.com/lit/ds/symlink/cc1101.pdf)
 and the bundled ELECHOUSE driver.
 
 For each valid learned frame, the CC1101 `FREQEST` register is logged as a
-signed carrier-offset estimate in kHz, with a suggested center frequency based
-on the current setting. This is an approximate receiver estimate and does not
-retune the radio automatically. If `frequency_controls` is enabled, Home
+signed estimate in kHz relative to the receiver's configured tuning. This is
+not an absolute carrier-frequency measurement: it includes the difference
+between the remote transmitter and receiver oscillator references. Use a
+calibrated SDR or other frequency reference to determine the absolute center
+frequency. The estimate does not retune the radio automatically. If
+`frequency_controls` is enabled, Home
 Assistant exposes number entities that immediately retune the CC1101. Center
 frequency can be set from 433.000 to 434.500 MHz in 1 kHz increments, and
 deviation from 1 to 100 kHz in 0.5 kHz increments. Runtime changes to
