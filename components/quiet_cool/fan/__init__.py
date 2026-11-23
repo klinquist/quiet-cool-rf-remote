@@ -98,9 +98,9 @@ CONFIG_SCHEMA = fan.fan_schema(QuietCoolFan).extend(
         ).extend(
             {cv.Optional(CONF_NAME, default="Listen to Physical Remote"): cv.string}
         ),
-        cv.Optional(CONF_STATUS_POLLING): cv.Schema(
+        cv.Optional(CONF_STATUS_POLLING, default={}): cv.Schema(
             {
-                cv.Optional(CONF_POLL_ENABLED, default=False): cv.boolean,
+                cv.Optional(CONF_POLL_ENABLED, default=True): cv.boolean,
                 cv.Optional(CONF_POLL_INTERVAL_SECONDS, default=30): cv.int_range(
                     min=10, max=3600
                 ),

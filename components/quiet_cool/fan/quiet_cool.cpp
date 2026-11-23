@@ -120,18 +120,16 @@ namespace esphome {
                 this->remote_listener_switch_->publish_state(this->remote_listening_enabled_);
             if (this->polling_interval_number_ != nullptr)
                 this->polling_interval_number_->publish_state(this->status_poll_interval_seconds_);
-            if (this->status_polling_enabled_ && !this->has_remote_id_) {
-                ESP_LOGW(TAG, "Status polling requested but no remote ID is configured or learned; disabling polling");
-                this->status_polling_enabled_ = false;
-            }
             if (this->status_polling_switch_ != nullptr)
                 this->status_polling_switch_->publish_state(this->status_polling_enabled_);
             if (this->timer_select_ != nullptr)
                 this->timer_select_->publish_state(static_cast<size_t>(0));
             this->publish_timer_remaining_();
             this->set_learning_status_(this->has_remote_id_ ? "Ready" : "Not Configured");
+            this->last_status_poll_at_ = millis();
             if (this->status_polling_enabled_)
-                this->send_status_query_();
+                ESP_LOGI(TAG, "Automatic 0x66 polling enabled; first query in %u seconds",
+                         static_cast<unsigned>(this->status_poll_interval_seconds_));
             ESP_LOGD(TAG, "QuietCool initialized");
         }
 
@@ -289,7 +287,7 @@ namespace esphome {
                 }
             }
 
-            if (this->status_polling_enabled_ && !this->learning_active_ &&
+            if (this->status_polling_enabled_ && this->has_remote_id_ && !this->learning_active_ &&
                 static_cast<uint32_t>(millis() - this->last_status_poll_at_) >=
                     static_cast<uint32_t>(this->status_poll_interval_seconds_) * 1000UL) {
                 this->send_status_query_();
@@ -490,14 +488,13 @@ namespace esphome {
                 this->status_polling_enabled_ = false;
                 return false;
             }
-            if (enabled && (this->qc_ == nullptr || !this->has_remote_id_)) {
-                ESP_LOGW(TAG, "Cannot enable 0x66 status polling without a configured or learned remote ID");
+            if (enabled && this->qc_ == nullptr) {
+                ESP_LOGW(TAG, "Cannot enable 0x66 status polling before CC1101 initialization");
                 this->status_polling_enabled_ = false;
                 return false;
             }
             this->status_polling_enabled_ = enabled;
-            if (enabled)
-                this->send_status_query_();
+            this->last_status_poll_at_ = millis();
             ESP_LOGI(TAG, "Automatic 0x66 status polling %s", enabled ? "enabled" : "disabled");
             return enabled;
         }

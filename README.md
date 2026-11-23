@@ -129,7 +129,8 @@ fan:
     # To disable them, set frequency_controls: {}.
     # Optional listener control; omitted by default:
     # remote_listener: {}
-    # Optional 0x66 polling controls under HA Configuration:
+    # 0x66 polling controls are created automatically under HA Configuration.
+    # To disable polling by default or change its interval:
     # status_polling:
     #   enabled: false
     #   interval_seconds: 30
@@ -172,7 +173,7 @@ fan:
 | `deviation_khz`   | No       | float        | 10         | Frequency deviation (spread) in kHz for FSK modulation.                     |
 | `frequency_controls` | No    | map          | automatic  | Creates center-frequency and deviation controls under Configuration, even when YAML values are set. An explicit map selects controls and names; an empty map disables them. |
 | `remote_listener` | No       | entity       | omitted   | Optional Configuration switch to enable/ignore unsolicited physical-remote frames. This switch is created only when this parameter is present. When disabled, replies are still accepted for 2 seconds after sending command `0x66`. |
-| `status_polling` | No       | map       | disabled   | Optional Configuration switch to poll fan status with `0x66`, plus a poll-interval control. Polling is off by default; the default interval is 30 seconds and the adjustable range is 10 to 3600 seconds. |
+| `status_polling` | No       | map       | enabled, 30 seconds | Creates a Configuration switch to enable polling fan status with `0x66`, plus a poll-interval control. Polling starts 30 seconds after boot or enable; the adjustable interval range is 10 to 3600 seconds. Set `enabled: false` to disable polling by default. |
 | `timer` | No       | map       | disabled   | Enables the timer duration select and remaining-time sensor. The select offers no timer, 1, 2, 4, 8, or 12 hours. Received timer commands are decoded even when this option is omitted. |
 | `learn_button`    | No       | entity       | enabled   | Creates the `QuietCool Learn Remote` button under Configuration.            |
 | `learning_status` | No       | entity       | enabled   | Creates the learning status text sensor under Diagnostics.                   |
@@ -201,12 +202,12 @@ receives during a short response window after a test button or polling sends
 `0x66`, so matching status replies can update the state. Without this YAML
 parameter, physical-remote listening stays enabled and no switch is created.
 
-The optional `status_polling` block creates a Configuration switch for
-periodic `0x66` queries and an interval control in seconds. Polling is off by
-default; enabling it sends an immediate query and then repeats at the selected
-interval. If polling is enabled in YAML, the node starts polling after boot.
-Polling requires a configured or learned remote ID and pauses during remote
-learning.
+The `status_polling` block creates a Configuration switch for periodic `0x66`
+queries and an interval control in seconds. Polling is enabled by default at
+30-second intervals; the first query is sent 30 seconds after boot or after
+turning polling on. Set `enabled: false` in YAML or turn off the HA switch to
+disable polling. Polling begins once a remote ID is configured or learned and
+pauses during remote learning.
 
 ## Automatic Remote Learning
 
