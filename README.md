@@ -104,32 +104,23 @@ If everything is working, you should see
 
 # Configuration
 
-## Required Configuration
+## Configuration
 
-The `remote_id` field is **required** and must match your specific QuietCool remote. This is a 7-byte identifier that uniquely identifies your remote control.
-
-> **Note:** QuietCool fans can pair with multiple remotes. This means you may not need to decode your existing remote's ID. Instead, you can simply pair this new ESPHome-based remote (with its own `remote_id`) to your fan, and both your original remote and the Home Assistant remote should work together.  This has yet to be tested.
-
-
-### Finding Your Remote ID
-
-NOTE:  you may not need to decode your existing remote's ID.  Instead, you can simply pair this new ESPHome-based remote (with its own `remote_id`) to your fan, and both your original remote and the Home Assistant remote should work together.  This has yet to be tested.
-
-To find your remote ID, you can:
-1. Use an RTL-SDR to capture signals from your physical remote
-2. Analyze the captured signals to extract the remote ID
-3. Or use the default value as a starting point: `[0x2D, 0xD4, 0x06, 0xCB, 0x00, 0xF7, 0xF2]`
+`remote_id` is optional. Without it, fan transmission stays disabled until a
+physical remote ID has been learned. Learning is available as a native Home
+Assistant button and does not require firmware changes after the first OTA.
 
 ### Example Configuration
 
 ```yaml
 fan:
   - platform: quiet_cool
+    id: quietcool_fan
     name: QuietCool fan
     cs_pin: 15
     gdo0_pin: 13
     gdo2_pin: 12
-    remote_id: [0x2D, 0xD4, 0x06, 0xCB, 0x00, 0xF7, 0xF2]
+    # remote_id: [0x2D, 0xD4, 0x06, 0xCB, 0x00, 0xF7, 0xF2]  # optional
     # Optional:
     # speed_count: 2
     # center_freq_mhz: 433.897
@@ -145,12 +136,14 @@ fan:
 | `name`            | Yes      | string       |           | The name of the fan in Home Assistant.                                      |
 | `platform`        | Yes      | string       |           | Must be `quiet_cool`.                                                       |
 | `cs_pin`          | Yes      | int          |           | SPI chip select pin for CC1101.                                             |
-| `gdo0_pin`        | Yes      | int          |           | GDO0 pin from CC1101 (used for TX/RX packet-complete signaling).             |
-| `gdo2_pin`        | Yes      | int          |           | GDO2 pin from CC1101 (can be -1 if unused).                                 |
-| `remote_id`       | Yes      | list[hex]    |           | 7-byte unique ID for your remote (see above).                               |
+| `gdo0_pin`        | Yes      | int          |           | CC1101 GDO0 data/RX packet-complete pin.                                     |
+| `gdo2_pin`        | Yes      | int          |           | CC1101 GDO2 clock pin used during learning.                                  |
+| `remote_id`       | No       | list[hex]    |           | Optional 7-byte remote ID. A valid ID learned in flash takes priority.       |
 | `speed_count`     | No       | int (2 or 3) | 3         | Set to `2` for LOW/HIGH fans, or `3` for LOW/MEDIUM/HIGH fans.               |
 | `center_freq_mhz` | No       | float        | 433.897    | Center frequency in MHz for RF transmission.                                |
 | `deviation_khz`   | No       | float        | 10         | Frequency deviation (spread) in kHz for FSK modulation.                     |
+| `learn_button`    | No       | entity       | enabled   | Creates the `QuietCool Learn Remote` Home Assistant button.                 |
+| `learning_status` | No       | entity       | enabled   | Creates the learning status text sensor.                                     |
 
 **Note:** You must also define the SPI bus pins in your YAML:
 
@@ -160,6 +153,54 @@ spi:
   mosi_pin: 23
   miso_pin: 19
 ```
+
+## Automatic Remote Learning
+
+Connect CC1101 **GDO0 to the configured `gdo0_pin`** and **GDO2 to the
+configured `gdo2_pin`**. Both signals are required. GDO0 carries synchronous
+data during learning; GDO2 supplies the bit clock. The configured SPI bus and
+CS wiring remain required for CC1101 control.
+
+In Home Assistant, press **QuietCool Learn Remote**, then press and release a
+button on the physical QuietCool remote twice, allowing about a second between
+presses. The status sensor reports `Learning`, then `Confirming`, and finally
+`Learned`. Learning stops after 30 seconds and reports `Timeout` if it does
+not receive two separated, valid frames for the same ID. Repeated packets from
+one continuous press are grouped and cannot confirm the ID by themselves.
+
+The CC1101 enters 2-FSK synchronous serial RX at the configured frequency
+(433.897 MHz by default). The component captures bits into a fixed-size ring
+buffer from the GDO2 clock interrupt, then scans outside the ISR for the fixed
+QuietCool prefix and validates the ID and duplicated LOW/MEDIUM/HIGH command
+bytes, including supported timer durations. The 0x66 setup command and
+malformed frames are ignored. After confirmation, packet-mode RX/TX is restored.
+The register choices follow TI's [CC1101 datasheet, synchronous serial
+operation and GDO configuration](https://www.ti.com/lit/ds/symlink/cc1101.pdf)
+and the bundled ELECHOUSE driver.
+
+The learned ID is stored through ESPHome's ESP32 preferences in NVS with a
+format version and checksum. Startup priority is a valid learned ID, then an
+ID in YAML, then unconfigured. OTA updates preserve NVS. Learning replaces an
+existing ID only after two valid, separated confirmations and a successful
+preference write. To replace an ID, start learning again; to force the YAML ID
+to be used, clear the device's ESPHome preferences/NVS before rebooting.
+
+### Troubleshooting and limitations
+
+- `Not Configured`: check CC1101 wiring, press Learn Remote, then send two
+  separate physical remote presses.
+- `Error`: check CC1101 detection and SPI/CS wiring, then reboot and retry.
+- If learning times out, verify that GDO0 and GDO2 are connected to the YAML
+  pins, the remote uses the configured frequency, and the remote battery is
+  good. Keep the remote near the receiver during learning.
+- A fan command during learning cancels learning and is sent if an ID is
+  already available. Without an ID it is safely ignored.
+- Learning uses the CC1101 synchronous serial mode and has not been verified
+  on hardware by this change. It requires an ESP32 Arduino target, a CC1101,
+  and a compatible physical QuietCool remote.
+- Fan state remains command tracking, not feedback from the fan. A lost
+  physical-remote transmission or a fan power interruption can leave Home
+  Assistant state out of sync.
 
 ## Physical Remote State Tracking
 

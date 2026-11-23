@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include "quietcool_learning.h"
 
 /*
   CC1101 Pin Connections:
@@ -50,6 +51,7 @@ class QuietCool {
     static constexpr size_t RX_PAYLOAD_LEN = REMOTE_ID_LEN - 2 + 2;
     static constexpr size_t RX_STATUS_LEN = 2;
     static constexpr uint32_t RX_DEDUP_WINDOW_MS = 350;
+    static constexpr size_t LEARNING_CAPTURE_BITS = 512;
 
     uint8_t csn_pin;
     uint8_t gdo0_pin;
@@ -61,13 +63,23 @@ class QuietCool {
     float   center_freq_mhz;
     float   deviation_khz;
     bool initialized_{false};
+    bool remote_id_valid_{false};
     volatile bool listening_{false};
     volatile bool packet_ready_{false};
     uint8_t last_rx_code_{0};
     uint32_t last_rx_at_{0};
 
+    enum class RadioMode : uint8_t { NORMAL_RX, TRANSMITTING, LEARNING, UNCONFIGURED };
+    RadioMode mode_{RadioMode::UNCONFIGURED};
+    volatile uint8_t captured_bits_[LEARNING_CAPTURE_BITS]{};
+    volatile uint16_t capture_head_{0};
+    volatile uint16_t capture_count_{0};
+    volatile uint32_t capture_total_{0};
+    uint32_t last_learning_frame_end_{0};
+
     static QuietCool *active_receiver_;
     static void handleGdo0Interrupt();
+    static void handleLearningClockInterrupt();
 
     bool initCC1101();
     uint8_t readChipVersion();
@@ -79,14 +91,21 @@ class QuietCool {
     void configureReceive();
     void startListening();
     void restartReceiver();
+    void configureLearning();
+    void stopLearning();
     bool decodePayload(const uint8_t *payload, QuietCoolCommand &command) const;
     static int8_t decodeRssi(uint8_t raw_rssi);
 
   public:
     QuietCool(uint8_t csn, uint8_t gdo0, uint8_t gdo2, uint8_t sck, uint8_t miso, uint8_t mosi, const uint8_t* remote_id_in, float freq_mhz, float deviation_khz);
-    void begin();
+    bool begin(bool has_remote_id);
     void send(QuietCoolSpeed speed, QuietCoolDuration duration);
+    void setRemoteId(const uint8_t *remote_id);
     bool receive(QuietCoolCommand &command);
+    bool startLearning();
+    void cancelLearning();
+    bool captureLearningFrame(learning::Frame &frame);
+    bool is_learning() const { return mode_ == RadioMode::LEARNING; }
 };
 
 }  // namespace quiet_cool
