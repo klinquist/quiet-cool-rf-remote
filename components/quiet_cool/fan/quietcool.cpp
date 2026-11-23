@@ -560,8 +560,19 @@ void QuietCool::send(QuietCoolSpeed speed, QuietCoolDuration duration) {
 }
 
 void QuietCool::sendCommand(uint8_t command_code) {
-    if (!initialized_ || !remote_id_valid_ || mode_ == RadioMode::UNCONFIGURED) {
-        ESP_LOGW(TAG, "Cannot transmit before CC1101 initialization");
+    if (!initialized_) {
+        ESP_LOGE(TAG, "Cannot transmit command 0x%02X: CC1101 initialization failed; check startup detection logs and CSn wiring",
+                 command_code);
+        return;
+    }
+    if (!remote_id_valid_) {
+        ESP_LOGW(TAG, "Cannot transmit command 0x%02X: no remote ID is configured or learned",
+                 command_code);
+        return;
+    }
+    if (mode_ == RadioMode::UNCONFIGURED) {
+        ESP_LOGW(TAG, "Cannot transmit command 0x%02X: radio is unconfigured",
+                 command_code);
         return;
     }
 
