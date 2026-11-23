@@ -556,6 +556,10 @@ bool QuietCool::begin(bool has_remote_id) {
 }
 
 void QuietCool::send(QuietCoolSpeed speed, QuietCoolDuration duration) {
+    this->sendCommand(this->getCommand(speed, duration));
+}
+
+void QuietCool::sendCommand(uint8_t command_code) {
     if (!initialized_ || !remote_id_valid_ || mode_ == RadioMode::UNCONFIGURED) {
         ESP_LOGW(TAG, "Cannot transmit before CC1101 initialization");
         return;
@@ -564,9 +568,7 @@ void QuietCool::send(QuietCoolSpeed speed, QuietCoolDuration duration) {
     if (mode_ == RadioMode::LEARNING)
         stopLearning();
 
-    ESP_LOGI(TAG, "send(0x%02x, %0x%02x)", speed, duration);
-    const uint8_t cmd_code = getCommand(speed, duration);
-    ESP_LOGI(TAG, "cmd=%02x ", cmd_code);
+    ESP_LOGI(TAG, "Sending raw QuietCool command 0x%02X", command_code);
     listening_ = false;
     mode_ = RadioMode::TRANSMITTING;
     detachInterrupt(digitalPinToInterrupt(gdo0_pin));
@@ -574,7 +576,7 @@ void QuietCool::send(QuietCoolSpeed speed, QuietCoolDuration duration) {
     packet_ready_ = false;
     interrupts();
     configureTransmit();
-    sendPacket(cmd_code);
+    sendPacket(command_code);
     startListening();
 }
 

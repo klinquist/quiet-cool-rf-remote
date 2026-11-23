@@ -52,3 +52,11 @@ fan:
     # remote_id is optional. Leave omitted to use automatic learning.
     # remote_id: [0x2D, 0xD4, 0x06, 0xCB, 0x00, 0xF7, 0xF2]
     # speed_count: 2  # Use 2 for fans that support LOW/HIGH only; default is 3.
+    # Optional raw RF test buttons. Each sends its configured command byte
+    # three times using the active (learned or configured) remote ID.
+    # Useful for testing the setup command (0x66) and raw 0x00 command.
+    # test_buttons:
+    #   - name: "Send QuietCool 0x66"
+    #     command: 0x66
+    #   - name: "Send QuietCool 0x00"
+    #     command: 0x00

@@ -283,6 +283,22 @@ namespace esphome {
                      static_cast<unsigned>(this->gdo2_pin_));
         }
 
+        void QuietCoolFan::send_test_command(uint8_t command_code) {
+            if (this->learning_active_) {
+                this->learning_active_ = false;
+                this->learning_confirmation_.reset();
+                this->qc_->cancelLearning();
+                this->set_learning_status_(this->has_remote_id_ ? "Ready" : "Not Configured");
+            }
+            if (this->qc_ == nullptr || !this->has_remote_id_) {
+                ESP_LOGW(TAG, "Cannot send test command 0x%02X without a configured or learned remote ID",
+                         command_code);
+                return;
+            }
+            ESP_LOGI(TAG, "Test button requested raw RF command 0x%02X", command_code);
+            this->qc_->sendCommand(command_code);
+        }
+
         void QuietCoolFan::finish_learning_(const std::array<uint8_t, 7> &id) {
             const auto previous_id = this->remote_id_;
             this->remote_id_ = id;
@@ -306,6 +322,11 @@ namespace esphome {
         void QuietCoolLearnButton::press_action() {
             if (this->parent_ != nullptr)
                 this->parent_->start_learning();
+        }
+
+        void QuietCoolTestCommandButton::press_action() {
+            if (this->parent_ != nullptr)
+                this->parent_->send_test_command(this->command_);
         }
     }  // namespace quiet_cool
 }  // namespace esphome

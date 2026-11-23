@@ -12,9 +12,12 @@ CONF_FREQ_MHZ = "center_freq_mhz"
 CONF_DEVIATION_KHZ = "deviation_khz"
 CONF_LEARN_BUTTON = "learn_button"
 CONF_LEARNING_STATUS = "learning_status"
+CONF_TEST_BUTTONS = "test_buttons"
+CONF_COMMAND = "command"
 
 QuietCoolFan = quiet_cool_ns.class_("QuietCoolFan", cg.Component, fan.Fan, spi.SPIDevice)
 QuietCoolLearnButton = quiet_cool_ns.class_("QuietCoolLearnButton", button.Button)
+QuietCoolTestCommandButton = quiet_cool_ns.class_("QuietCoolTestCommandButton", button.Button)
 QuietCoolLearningStatus = quiet_cool_ns.class_(
     "QuietCoolLearningStatus", cg.Component, text_sensor.TextSensor
 )
@@ -45,6 +48,11 @@ CONFIG_SCHEMA = fan.fan_schema(QuietCoolFan).extend(
         cv.Optional(CONF_LEARN_BUTTON, default={}): button.button_schema(
             QuietCoolLearnButton
         ).extend({cv.Optional(CONF_NAME, default="QuietCool Learn Remote"): cv.string}),
+        cv.Optional(CONF_TEST_BUTTONS): cv.ensure_list(
+            button.button_schema(QuietCoolTestCommandButton).extend(
+                {cv.Required(CONF_COMMAND): cv.hex_uint8_t}
+            )
+        ),
         cv.Optional(CONF_LEARNING_STATUS, default={}): text_sensor.text_sensor_schema(
             QuietCoolLearningStatus
         ).extend({cv.Optional(CONF_NAME, default="QuietCool Learning Status"): cv.string}),
@@ -80,6 +88,11 @@ async def to_code(config):
 
     learn_button = await button.new_button(config[CONF_LEARN_BUTTON])
     cg.add(learn_button.set_parent(var))
+
+    for test_button_config in config.get(CONF_TEST_BUTTONS, []):
+        test_button = await button.new_button(test_button_config)
+        cg.add(test_button.set_parent(var))
+        cg.add(test_button.set_command(test_button_config[CONF_COMMAND]))
 
     status_sensor = await text_sensor.new_text_sensor(config[CONF_LEARNING_STATUS])
     await cg.register_component(status_sensor, config[CONF_LEARNING_STATUS])

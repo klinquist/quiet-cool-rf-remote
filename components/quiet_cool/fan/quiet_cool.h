@@ -45,6 +45,7 @@ namespace esphome {
             void set_speed_count(uint8_t speed_count) { this->speed_count_ = speed_count; }
             void set_learning_status_sensor(text_sensor::TextSensor *sensor) { this->learning_status_sensor_ = sensor; }
             void start_learning();
+            void send_test_command(uint8_t command_code);
             bool is_learning() const { return this->learning_active_; }
 
         protected:
@@ -108,6 +109,17 @@ namespace esphome {
             void press_action() override;
          private:
             QuietCoolFan *parent_{nullptr};
+        };
+
+        class QuietCoolTestCommandButton : public button::Button {
+         public:
+            void set_parent(QuietCoolFan *parent) { this->parent_ = parent; }
+            void set_command(uint8_t command) { this->command_ = command; }
+         protected:
+            void press_action() override;
+         private:
+            QuietCoolFan *parent_{nullptr};
+            uint8_t command_{0x66};
         };
 
         class QuietCoolLearningStatus : public Component, public text_sensor::TextSensor {

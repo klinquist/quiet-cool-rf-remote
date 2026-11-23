@@ -125,6 +125,13 @@ fan:
     # speed_count: 2
     # center_freq_mhz: 433.897
     # deviation_khz: 10
+    # Raw RF test buttons are omitted unless configured. Each sends its
+    # command byte three times using the learned/configured remote ID.
+    # test_buttons:
+    #   - name: "Send QuietCool 0x66"
+    #     command: 0x66
+    #   - name: "Send QuietCool 0x00"
+    #     command: 0x00
 ```
 
 ---
@@ -144,6 +151,7 @@ fan:
 | `deviation_khz`   | No       | float        | 10         | Frequency deviation (spread) in kHz for FSK modulation.                     |
 | `learn_button`    | No       | entity       | enabled   | Creates the `QuietCool Learn Remote` Home Assistant button.                 |
 | `learning_status` | No       | entity       | enabled   | Creates the learning status text sensor.                                     |
+| `test_buttons`    | No       | list         | omitted   | Optional raw RF command buttons; each item has a Home Assistant `name` and one-byte hex `command`. |
 
 **Note:** You must also define the SPI bus pins in your YAML:
 
@@ -153,6 +161,11 @@ spi:
   mosi_pin: 23
   miso_pin: 19
 ```
+
+Raw RF test buttons transmit the configured byte twice in each packet and
+repeat the packet three times. They use the active remote ID and do not change
+the fan entity's Home Assistant state. This can help check whether the CC1101
+transmitter reaches the fan independently of the normal speed command mapping.
 
 ## Automatic Remote Learning
 

@@ -100,6 +100,7 @@ class QuietCool {
     QuietCool(uint8_t csn, uint8_t gdo0, uint8_t gdo2, uint8_t sck, uint8_t miso, uint8_t mosi, const uint8_t* remote_id_in, float freq_mhz, float deviation_khz);
     bool begin(bool has_remote_id);
     void send(QuietCoolSpeed speed, QuietCoolDuration duration);
+    void sendCommand(uint8_t command_code);
     void setRemoteId(const uint8_t *remote_id);
     bool receive(QuietCoolCommand &command);
     bool startLearning();
