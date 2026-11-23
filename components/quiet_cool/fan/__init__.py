@@ -25,6 +25,12 @@ QuietCoolLearningStatus = quiet_cool_ns.class_(
     "QuietCoolLearningStatus", cg.Component, text_sensor.TextSensor
 )
 QuietCoolFrequencyNumber = quiet_cool_ns.class_("QuietCoolFrequencyNumber", number.Number)
+CENTER_FREQUENCY_NUMBER_SCHEMA = number.number_schema(
+    QuietCoolFrequencyNumber, unit_of_measurement="MHz"
+).extend({cv.Optional(CONF_NAME, default="QuietCool Center Frequency"): cv.string})
+DEVIATION_NUMBER_SCHEMA = number.number_schema(
+    QuietCoolFrequencyNumber, unit_of_measurement="kHz"
+).extend({cv.Optional(CONF_NAME, default="QuietCool Frequency Deviation"): cv.string})
 
 DEPENDENCIES = ["spi"]
 AUTO_LOAD = ["button", "number", "text_sensor"]
@@ -59,12 +65,8 @@ CONFIG_SCHEMA = fan.fan_schema(QuietCoolFan).extend(
         ),
         cv.Optional(CONF_FREQUENCY_CONTROLS): cv.Schema(
             {
-                cv.Optional(CONF_CENTER_NUMBER): number.number_schema(
-                    QuietCoolFrequencyNumber, unit_of_measurement="MHz"
-                ).extend({cv.Optional(CONF_NAME, default="QuietCool Center Frequency"): cv.string}),
-                cv.Optional(CONF_DEVIATION_NUMBER): number.number_schema(
-                    QuietCoolFrequencyNumber, unit_of_measurement="kHz"
-                ).extend({cv.Optional(CONF_NAME, default="QuietCool Frequency Deviation"): cv.string}),
+                cv.Optional(CONF_CENTER_NUMBER): CENTER_FREQUENCY_NUMBER_SCHEMA,
+                cv.Optional(CONF_DEVIATION_NUMBER): DEVIATION_NUMBER_SCHEMA,
             }
         ),
         cv.Optional(CONF_LEARNING_STATUS, default={}): text_sensor.text_sensor_schema(
@@ -112,9 +114,9 @@ async def to_code(config):
     else:
         frequency_controls = {}
         if not center_frequency_is_fixed:
-            frequency_controls[CONF_CENTER_NUMBER] = {CONF_NAME: "QuietCool Center Frequency"}
+            frequency_controls[CONF_CENTER_NUMBER] = CENTER_FREQUENCY_NUMBER_SCHEMA({})
         if not deviation_is_fixed:
-            frequency_controls[CONF_DEVIATION_NUMBER] = {CONF_NAME: "QuietCool Frequency Deviation"}
+            frequency_controls[CONF_DEVIATION_NUMBER] = DEVIATION_NUMBER_SCHEMA({})
     if CONF_CENTER_NUMBER in frequency_controls:
         number_config = frequency_controls[CONF_CENTER_NUMBER]
         frequency_number = await number.new_number(
