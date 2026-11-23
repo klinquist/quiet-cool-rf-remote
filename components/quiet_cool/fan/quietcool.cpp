@@ -140,15 +140,20 @@ void QuietCool::restartReceiver() {
 void QuietCool::configureLearning() {
     ELECHOUSE_cc1101.setSidle();
     // TI CC1101 datasheet: PKT_FORMAT=01 selects synchronous serial mode;
-    // SYNC_MODE=000 disables hardware sync so the known prefix is found in SW.
+    // SYNC_MODE=100 disables hardware sync but gates RX on carrier sense, so
+    // idle noise is not consumed as a packet before software finds the prefix.
     // GDO0=0x0C is synchronous data out; GDO2=0x0B is the serial clock.
     // RX data is set up on the falling clock edge, so the MCU samples on rise.
-    ELECHOUSE_cc1101.setSyncMode(0);
+    ELECHOUSE_cc1101.setSyncMode(4);
     ELECHOUSE_cc1101.setManchester(false);
     ELECHOUSE_cc1101.setWhiteData(false);
     ELECHOUSE_cc1101.setCrc(false);
-    ELECHOUSE_cc1101.setLengthConfig(0);
     ELECHOUSE_cc1101.setPktFormat(1);
+    // Software scans for the QuietCool prefix without hardware sync, so a
+    // fixed 20-byte packet would consume noise at RX entry and then stop RX.
+    // Infinite length keeps the synchronous serial receiver active until
+    // stopLearning() explicitly changes the radio state.
+    ELECHOUSE_cc1101.setLengthConfig(2);
     ELECHOUSE_cc1101.setPQT(0);
     ELECHOUSE_cc1101.setAdrChk(0);
     ELECHOUSE_cc1101.setAppendStatus(false);

@@ -178,8 +178,9 @@ quality. Per-frame details are logged at DEBUG level. A timeout also prints
 the captured raw bits, oldest first, so the received stream can be compared
 against the expected prefix and frame layout.
 
-The CC1101 enters 2-FSK synchronous serial RX at the configured frequency
-(433.897 MHz by default). The component captures bits into a fixed-size ring
+The CC1101 enters 2-FSK synchronous serial RX with carrier-sense gating and
+infinite packet length at the configured frequency (433.897 MHz by default).
+The component captures bits into a fixed-size ring
 buffer from the GDO2 clock interrupt, then scans outside the ISR for the fixed
 QuietCool prefix and validates the ID and duplicated LOW/MEDIUM/HIGH command
 bytes, including supported timer durations. The 0x66 setup command and
