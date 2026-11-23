@@ -1,6 +1,6 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import button, fan, number, sensor, spi, switch, text_sensor
+from esphome.components import button, fan, number, select, sensor, spi, switch, text_sensor
 from esphome.const import (
     CONF_CLK_PIN,
     CONF_ID,
@@ -27,6 +27,7 @@ CONF_TEST_BUTTONS = "test_buttons"
 CONF_REMOTE_LISTENER = "remote_listener"
 CONF_ADDITIONAL_REMOTE_IDS = "additional_remote_ids"
 CONF_TIMER = "timer"
+CONF_TIMER_CONTROL = "control"
 CONF_TIMER_BUTTONS = "buttons"
 CONF_TIMER_REMAINING = "remaining"
 CONF_STATUS_POLLING = "status_polling"
@@ -45,7 +46,7 @@ QuietCoolTestCommandButton = quiet_cool_ns.class_("QuietCoolTestCommandButton", 
 QuietCoolRemoteListenerSwitch = quiet_cool_ns.class_(
     "QuietCoolRemoteListenerSwitch", switch.Switch
 )
-QuietCoolTimerButton = quiet_cool_ns.class_("QuietCoolTimerButton", button.Button)
+QuietCoolTimerSelect = quiet_cool_ns.class_("QuietCoolTimerSelect", select.Select)
 QuietCoolStatusPollingSwitch = quiet_cool_ns.class_(
     "QuietCoolStatusPollingSwitch", switch.Switch
 )
@@ -69,7 +70,7 @@ POLLING_INTERVAL_SCHEMA = number.number_schema(
 ).extend({cv.Optional(CONF_NAME, default="QuietCool Poll Interval"): cv.string})
 
 DEPENDENCIES = ["spi"]
-AUTO_LOAD = ["button", "number", "sensor", "switch", "text_sensor"]
+AUTO_LOAD = ["button", "number", "select", "sensor", "switch", "text_sensor"]
 FINAL_VALIDATE_SCHEMA = spi.final_validate_device_schema(
     "quiet_cool", require_mosi=True, require_miso=True
 )
@@ -128,27 +129,13 @@ CONFIG_SCHEMA = fan.fan_schema(QuietCoolFan).extend(
         ),
         cv.Optional(CONF_TIMER): cv.Schema(
             {
-                cv.Optional(CONF_TIMER_BUTTONS, default={}): cv.Schema(
-                    {
-                        cv.Optional("continuous", default={}): button.button_schema(
-                            QuietCoolTimerButton, icon="mdi:timer-off-outline"
-                        ).extend({cv.Optional(CONF_NAME, default="Timer: No Limit"): cv.string}),
-                        cv.Optional("1_hour", default={}): button.button_schema(
-                            QuietCoolTimerButton, icon="mdi:timer-outline"
-                        ).extend({cv.Optional(CONF_NAME, default="Timer: 1 Hour"): cv.string}),
-                        cv.Optional("2_hours", default={}): button.button_schema(
-                            QuietCoolTimerButton, icon="mdi:timer-outline"
-                        ).extend({cv.Optional(CONF_NAME, default="Timer: 2 Hours"): cv.string}),
-                        cv.Optional("4_hours", default={}): button.button_schema(
-                            QuietCoolTimerButton, icon="mdi:timer-outline"
-                        ).extend({cv.Optional(CONF_NAME, default="Timer: 4 Hours"): cv.string}),
-                        cv.Optional("8_hours", default={}): button.button_schema(
-                            QuietCoolTimerButton, icon="mdi:timer-outline"
-                        ).extend({cv.Optional(CONF_NAME, default="Timer: 8 Hours"): cv.string}),
-                        cv.Optional("12_hours", default={}): button.button_schema(
-                            QuietCoolTimerButton, icon="mdi:timer-outline"
-                        ).extend({cv.Optional(CONF_NAME, default="Timer: 12 Hours"): cv.string}),
-                    }
+                cv.Optional(CONF_TIMER_CONTROL, default={}): select.select_schema(
+                    QuietCoolTimerSelect, icon="mdi:timer-outline"
+                ).extend(
+                    {cv.Optional(CONF_NAME, default="QuietCool Timer"): cv.string}
+                ),
+                cv.Optional(CONF_TIMER_BUTTONS): cv.Schema(
+                    {}, extra=cv.ALLOW_EXTRA
                 ),
                 cv.Optional(CONF_TIMER_REMAINING, default={}): sensor.sensor_schema(
                     icon="mdi:timer-sand",
@@ -285,20 +272,12 @@ async def to_code(config):
 
     if CONF_TIMER in config:
         timer_config = config[CONF_TIMER]
-        timer_button_indices = {
-            "continuous": 0,
-            "1_hour": 1,
-            "2_hours": 2,
-            "4_hours": 3,
-            "8_hours": 4,
-            "12_hours": 5,
-        }
-        for timer_name, option_index in timer_button_indices.items():
-            timer_button = await button.new_button(
-                timer_config[CONF_TIMER_BUTTONS][timer_name]
-            )
-            cg.add(timer_button.set_parent(var))
-            cg.add(timer_button.set_option_index(option_index))
+        timer_select = await select.new_select(
+            timer_config[CONF_TIMER_CONTROL],
+            options=["No Timer", "1 hour", "2 hours", "4 hours", "8 hours", "12 hours"],
+        )
+        cg.add(timer_select.set_parent(var))
+        cg.add(var.set_timer_select(timer_select))
         remaining_sensor = await sensor.new_sensor(timer_config[CONF_TIMER_REMAINING])
         cg.add(var.set_timer_remaining_sensor(remaining_sensor))
 

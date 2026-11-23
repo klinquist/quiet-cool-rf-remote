@@ -123,6 +123,8 @@ namespace esphome {
                 this->polling_interval_number_->publish_state(this->status_poll_interval_seconds_);
             if (this->status_polling_switch_ != nullptr)
                 this->status_polling_switch_->publish_state(this->status_polling_enabled_);
+            if (this->timer_select_ != nullptr)
+                this->timer_select_->publish_state(static_cast<size_t>(0));
             this->publish_timer_remaining_();
             this->set_learning_status_(this->has_remote_id_ ? "Ready" : "Not Configured");
             this->last_status_poll_at_ = millis();
@@ -349,6 +351,7 @@ namespace esphome {
                 this->speed = received_speed;
                 this->configured_timer_duration_ = command.duration;
                 this->start_timer_(command.duration);
+                this->sync_timer_select_(command.duration);
             }
 
             ESP_LOGI(TAG, "Publishing physical remote state: %s, speed %d, command 0x%02X",
@@ -370,6 +373,8 @@ namespace esphome {
                 return;
             }
             this->configured_timer_duration_ = DURATIONS[option_index];
+            if (this->timer_select_ != nullptr)
+                this->timer_select_->publish_state(option_index);
 
             if (this->state && this->qc_ != nullptr && this->has_remote_id_) {
                 this->qc_->send(this->to_radio_speed_(this->speed), this->configured_timer_duration_);
@@ -401,6 +406,22 @@ namespace esphome {
             }
             this->timer_remaining_sensor_->publish_state(remaining_hours);
             this->last_timer_sensor_publish_at_ = millis();
+        }
+
+        void QuietCoolFan::sync_timer_select_(QuietCoolDuration duration) {
+            if (this->timer_select_ == nullptr || duration == QUIETCOOL_DURATION_OFF)
+                return;
+            size_t index = 0;
+            switch (duration) {
+                case QUIETCOOL_DURATION_1H: index = 1; break;
+                case QUIETCOOL_DURATION_2H: index = 2; break;
+                case QUIETCOOL_DURATION_4H: index = 3; break;
+                case QUIETCOOL_DURATION_8H: index = 4; break;
+                case QUIETCOOL_DURATION_12H: index = 5; break;
+                case QUIETCOOL_DURATION_ON: default: index = 0; break;
+            }
+            this->configured_timer_duration_ = duration;
+            this->timer_select_->publish_state(index);
         }
 
         void QuietCoolFan::dump_config() {
@@ -548,9 +569,9 @@ namespace esphome {
                 this->parent_->set_status_poll_interval(value);
         }
 
-        void QuietCoolTimerButton::press_action() {
+        void QuietCoolTimerSelect::control(size_t index) {
             if (this->parent_ != nullptr)
-                this->parent_->set_timer_duration(this->option_index_);
+                this->parent_->set_timer_duration(index);
         }
 
         void QuietCoolFrequencyNumber::control(float value) {
