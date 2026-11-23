@@ -3,6 +3,7 @@ typedef uint8_t byte;
 #include "quietcool.h"
 #include "esphome/core/log.h"
 #include "ELECHOUSE_CC1101_SRC_DRV.h"
+#include <algorithm>
 #include <cstring>
 #include "driver/gpio.h"
 
@@ -235,6 +236,30 @@ void QuietCool::getLearningCaptureStats(uint32_t &total_edges, uint16_t &buffere
     total_edges = capture_total_;
     buffered_bits = capture_count_;
     interrupts();
+}
+
+void QuietCool::logLearningCapture() {
+    uint8_t snapshot[LEARNING_CAPTURE_BITS];
+    uint16_t count;
+    uint16_t head;
+    noInterrupts();
+    count = capture_count_;
+    head = capture_head_;
+    const uint16_t first = static_cast<uint16_t>((head + LEARNING_CAPTURE_BITS - count) % LEARNING_CAPTURE_BITS);
+    for (uint16_t i = 0; i < count; i++)
+        snapshot[i] = captured_bits_[(first + i) % LEARNING_CAPTURE_BITS];
+    interrupts();
+
+    ESP_LOGI(TAG, "Raw learning capture: %u bits, chronological, oldest first", static_cast<unsigned>(count));
+    char line[65];
+    for (uint16_t offset = 0; offset < count; offset += 64) {
+        const uint16_t line_bits = static_cast<uint16_t>(std::min<uint16_t>(64, count - offset));
+        for (uint16_t i = 0; i < line_bits; i++)
+            line[i] = snapshot[offset + i] ? '1' : '0';
+        line[line_bits] = '\0';
+        ESP_LOGI(TAG, "  bits %u-%u: %s", static_cast<unsigned>(offset),
+                 static_cast<unsigned>(offset + line_bits - 1), line);
+    }
 }
 
 void IRAM_ATTR QuietCool::handleGdo0Interrupt() {

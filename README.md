@@ -174,7 +174,9 @@ Discovery logs report GDO2 clock edges, buffered bits, valid decoded frames,
 remote IDs, and command bytes. If no clock edges arrive, check that the radio
 is receiving the remote transmission and that GDO2 is connected to the YAML
 pin. If edges arrive but no valid frames decode, check frequency and signal
-quality. Per-frame details are logged at DEBUG level.
+quality. Per-frame details are logged at DEBUG level. A timeout also prints
+the captured raw bits, oldest first, so the received stream can be compared
+against the expected prefix and frame layout.
 
 The CC1101 enters 2-FSK synchronous serial RX at the configured frequency
 (433.897 MHz by default). The component captures bits into a fixed-size ring

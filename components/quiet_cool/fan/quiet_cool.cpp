@@ -34,6 +34,7 @@ namespace esphome {
         }
 
         void QuietCoolFan::setup() {
+            ESP_LOGI(TAG, "Firmware compiled %s %s (compiler local time)", __DATE__, __TIME__);
             if (!this->pins_set_) {
                 ESP_LOGE(TAG, "QuietCool pins not configured via YAML; radio not initialised");
                 this->set_learning_status_("Error");
@@ -107,6 +108,7 @@ namespace esphome {
                         ESP_LOGW(TAG, "Learning timed out: %u GDO2 clock edges, %u buffered bits, %u valid frames decoded",
                                  static_cast<unsigned>(total_edges), static_cast<unsigned>(buffered_bits),
                                  static_cast<unsigned>(this->learning_valid_frames_));
+                        this->qc_->logLearningCapture();
                     } else {
                         const uint32_t now = millis();
                         if (static_cast<uint32_t>(now - this->learning_progress_log_at_) >= LEARNING_PROGRESS_LOG_MS) {

@@ -106,6 +106,7 @@ class QuietCool {
     void cancelLearning();
     bool captureLearningFrame(learning::Frame &frame);
     void getLearningCaptureStats(uint32_t &total_edges, uint16_t &buffered_bits);
+    void logLearningCapture();
     bool is_learning() const { return mode_ == RadioMode::LEARNING; }
 };
 
