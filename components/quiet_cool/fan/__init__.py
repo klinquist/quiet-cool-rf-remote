@@ -113,10 +113,21 @@ async def to_code(config):
         frequency_controls = config[CONF_FREQUENCY_CONTROLS]
     else:
         frequency_controls = {}
+        fan_id = config[CONF_OUTPUT_ID].id
         if not center_frequency_is_fixed:
-            frequency_controls[CONF_CENTER_NUMBER] = CENTER_FREQUENCY_NUMBER_SCHEMA({})
+            frequency_controls[CONF_CENTER_NUMBER] = CENTER_FREQUENCY_NUMBER_SCHEMA(
+                {
+                    CONF_ID: f"{fan_id}_center_frequency",
+                    CONF_NAME: "QuietCool Center Frequency",
+                }
+            )
         if not deviation_is_fixed:
-            frequency_controls[CONF_DEVIATION_NUMBER] = DEVIATION_NUMBER_SCHEMA({})
+            frequency_controls[CONF_DEVIATION_NUMBER] = DEVIATION_NUMBER_SCHEMA(
+                {
+                    CONF_ID: f"{fan_id}_frequency_deviation",
+                    CONF_NAME: "QuietCool Frequency Deviation",
+                }
+            )
     if CONF_CENTER_NUMBER in frequency_controls:
         number_config = frequency_controls[CONF_CENTER_NUMBER]
         frequency_number = await number.new_number(
