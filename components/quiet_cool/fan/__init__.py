@@ -1,7 +1,17 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import button, fan, number, spi, switch, text_sensor
-from esphome.const import CONF_CLK_PIN, CONF_ID, CONF_MISO_PIN, CONF_MOSI_PIN, CONF_NAME, CONF_OUTPUT_ID, CONF_SPEED_COUNT
+from esphome.components import button, fan, number, select, sensor, spi, switch, text_sensor
+from esphome.const import (
+    CONF_CLK_PIN,
+    CONF_ID,
+    CONF_MISO_PIN,
+    CONF_MOSI_PIN,
+    CONF_NAME,
+    CONF_OUTPUT_ID,
+    CONF_SPEED_COUNT,
+    DEVICE_CLASS_DURATION,
+    STATE_CLASS_MEASUREMENT,
+)
 from esphome.core import CORE
 from .. import quiet_cool_ns
 
@@ -15,6 +25,14 @@ CONF_LEARNING_STATUS = "learning_status"
 CONF_RX_PACKET_SENSOR = "rx_packet_sensor"
 CONF_TEST_BUTTONS = "test_buttons"
 CONF_REMOTE_LISTENER = "remote_listener"
+CONF_TIMER = "timer"
+CONF_TIMER_CONTROL = "control"
+CONF_TIMER_REMAINING = "remaining"
+CONF_STATUS_POLLING = "status_polling"
+CONF_POLL_ENABLED = "enabled"
+CONF_POLL_INTERVAL_SECONDS = "interval_seconds"
+CONF_POLL_SWITCH = "switch"
+CONF_POLL_INTERVAL = "interval"
 CONF_COMMAND = "command"
 CONF_FREQUENCY_CONTROLS = "frequency_controls"
 CONF_CENTER_NUMBER = "center_freq_mhz"
@@ -26,6 +44,13 @@ QuietCoolTestCommandButton = quiet_cool_ns.class_("QuietCoolTestCommandButton", 
 QuietCoolRemoteListenerSwitch = quiet_cool_ns.class_(
     "QuietCoolRemoteListenerSwitch", switch.Switch
 )
+QuietCoolTimerSelect = quiet_cool_ns.class_("QuietCoolTimerSelect", select.Select)
+QuietCoolStatusPollingSwitch = quiet_cool_ns.class_(
+    "QuietCoolStatusPollingSwitch", switch.Switch
+)
+QuietCoolPollingIntervalNumber = quiet_cool_ns.class_(
+    "QuietCoolPollingIntervalNumber", number.Number
+)
 QuietCoolLearningStatus = quiet_cool_ns.class_(
     "QuietCoolLearningStatus", cg.Component, text_sensor.TextSensor
 )
@@ -36,9 +61,14 @@ CENTER_FREQUENCY_NUMBER_SCHEMA = number.number_schema(
 DEVIATION_NUMBER_SCHEMA = number.number_schema(
     QuietCoolFrequencyNumber, unit_of_measurement="kHz", entity_category="config"
 ).extend({cv.Optional(CONF_NAME, default="QuietCool Frequency Deviation"): cv.string})
+POLLING_INTERVAL_SCHEMA = number.number_schema(
+    QuietCoolPollingIntervalNumber,
+    unit_of_measurement="s",
+    entity_category="config",
+).extend({cv.Optional(CONF_NAME, default="QuietCool Poll Interval"): cv.string})
 
 DEPENDENCIES = ["spi"]
-AUTO_LOAD = ["button", "number", "switch", "text_sensor"]
+AUTO_LOAD = ["button", "number", "select", "sensor", "switch", "text_sensor"]
 FINAL_VALIDATE_SCHEMA = spi.final_validate_device_schema(
     "quiet_cool", require_mosi=True, require_miso=True
 )
@@ -63,10 +93,41 @@ CONFIG_SCHEMA = fan.fan_schema(QuietCoolFan).extend(
         cv.Optional(CONF_LEARN_BUTTON, default={}): button.button_schema(
             QuietCoolLearnButton, entity_category="config"
         ).extend({cv.Optional(CONF_NAME, default="QuietCool Learn Remote"): cv.string}),
-        cv.Optional(CONF_REMOTE_LISTENER, default={}): switch.switch_schema(
+        cv.Optional(CONF_REMOTE_LISTENER): switch.switch_schema(
             QuietCoolRemoteListenerSwitch, entity_category="config"
         ).extend(
             {cv.Optional(CONF_NAME, default="Listen to Physical Remote"): cv.string}
+        ),
+        cv.Optional(CONF_STATUS_POLLING): cv.Schema(
+            {
+                cv.Optional(CONF_POLL_ENABLED, default=False): cv.boolean,
+                cv.Optional(CONF_POLL_INTERVAL_SECONDS, default=30): cv.int_range(
+                    min=10, max=3600
+                ),
+                cv.Optional(CONF_POLL_SWITCH, default={}): switch.switch_schema(
+                    QuietCoolStatusPollingSwitch, entity_category="config"
+                ).extend(
+                    {cv.Optional(CONF_NAME, default="Poll Fan Status"): cv.string}
+                ),
+                cv.Optional(CONF_POLL_INTERVAL, default={}): POLLING_INTERVAL_SCHEMA,
+            }
+        ),
+        cv.Optional(CONF_TIMER): cv.Schema(
+            {
+                cv.Optional(CONF_TIMER_CONTROL, default={}): select.select_schema(
+                    QuietCoolTimerSelect, entity_category="config"
+                ).extend(
+                    {cv.Optional(CONF_NAME, default="QuietCool Timer"): cv.string}
+                ),
+                cv.Optional(CONF_TIMER_REMAINING, default={}): sensor.sensor_schema(
+                    unit_of_measurement="h",
+                    accuracy_decimals=2,
+                    device_class=DEVICE_CLASS_DURATION,
+                    state_class=STATE_CLASS_MEASUREMENT,
+                ).extend(
+                    {cv.Optional(CONF_NAME, default="QuietCool Time Remaining"): cv.string}
+                ),
+            }
         ),
         cv.Optional(CONF_TEST_BUTTONS): cv.ensure_list(
             button.button_schema(
@@ -115,9 +176,6 @@ async def to_code(config):
     if CONF_REMOTE_ID in config:
         cg.add(var.set_remote_id(config[CONF_REMOTE_ID]))
     cg.add(var.set_speed_count(config[CONF_SPEED_COUNT]))
-    center_frequency_is_fixed = CONF_FREQ_MHZ in config
-    deviation_is_fixed = CONF_DEVIATION_KHZ in config
-    cg.add(var.set_frequency_fixed(center_frequency_is_fixed, deviation_is_fixed))
     cg.add(
         var.set_frequencies(
             config.get(CONF_FREQ_MHZ, 433.897), config.get(CONF_DEVIATION_KHZ, 10.0)
@@ -129,20 +187,25 @@ async def to_code(config):
     else:
         frequency_controls = {}
         fan_id = config[CONF_OUTPUT_ID].id
-        if not center_frequency_is_fixed:
-            frequency_controls[CONF_CENTER_NUMBER] = CENTER_FREQUENCY_NUMBER_SCHEMA(
-                {
-                    CONF_ID: f"{fan_id}_center_frequency",
-                    CONF_NAME: "QuietCool Center Frequency",
-                }
-            )
-        if not deviation_is_fixed:
-            frequency_controls[CONF_DEVIATION_NUMBER] = DEVIATION_NUMBER_SCHEMA(
-                {
-                    CONF_ID: f"{fan_id}_frequency_deviation",
-                    CONF_NAME: "QuietCool Frequency Deviation",
-                }
-            )
+        frequency_controls[CONF_CENTER_NUMBER] = CENTER_FREQUENCY_NUMBER_SCHEMA(
+            {
+                CONF_ID: f"{fan_id}_center_frequency",
+                CONF_NAME: "QuietCool Center Frequency",
+            }
+        )
+        frequency_controls[CONF_DEVIATION_NUMBER] = DEVIATION_NUMBER_SCHEMA(
+            {
+                CONF_ID: f"{fan_id}_frequency_deviation",
+                CONF_NAME: "QuietCool Frequency Deviation",
+            }
+        )
+    center_frequency_is_fixed = (
+        CONF_FREQ_MHZ in config and CONF_CENTER_NUMBER not in frequency_controls
+    )
+    deviation_is_fixed = (
+        CONF_DEVIATION_KHZ in config and CONF_DEVIATION_NUMBER not in frequency_controls
+    )
+    cg.add(var.set_frequency_fixed(center_frequency_is_fixed, deviation_is_fixed))
     if CONF_CENTER_NUMBER in frequency_controls:
         number_config = frequency_controls[CONF_CENTER_NUMBER]
         frequency_number = await number.new_number(
@@ -161,9 +224,38 @@ async def to_code(config):
     learn_button = await button.new_button(config[CONF_LEARN_BUTTON])
     cg.add(learn_button.set_parent(var))
 
-    listener_switch = await switch.new_switch(config[CONF_REMOTE_LISTENER])
-    cg.add(listener_switch.set_parent(var))
-    cg.add(var.set_remote_listener_switch(listener_switch))
+    if CONF_REMOTE_LISTENER in config:
+        listener_switch = await switch.new_switch(config[CONF_REMOTE_LISTENER])
+        cg.add(listener_switch.set_parent(var))
+        cg.add(var.set_remote_listener_switch(listener_switch))
+
+    if CONF_STATUS_POLLING in config:
+        polling_config = config[CONF_STATUS_POLLING]
+        cg.add(
+            var.set_status_polling_config(
+                polling_config[CONF_POLL_ENABLED],
+                polling_config[CONF_POLL_INTERVAL_SECONDS],
+            )
+        )
+        polling_switch = await switch.new_switch(polling_config[CONF_POLL_SWITCH])
+        cg.add(polling_switch.set_parent(var))
+        cg.add(var.set_status_polling_switch(polling_switch))
+        polling_interval = await number.new_number(
+            polling_config[CONF_POLL_INTERVAL], min_value=10, max_value=3600, step=10
+        )
+        cg.add(polling_interval.set_parent(var))
+        cg.add(var.set_polling_interval_number(polling_interval))
+
+    if CONF_TIMER in config:
+        timer_config = config[CONF_TIMER]
+        timer_select = await select.new_select(
+            timer_config[CONF_TIMER_CONTROL],
+            options=["No Timer", "1 hour", "2 hours", "4 hours", "8 hours", "12 hours"],
+        )
+        cg.add(timer_select.set_parent(var))
+        cg.add(var.set_timer_select(timer_select))
+        remaining_sensor = await sensor.new_sensor(timer_config[CONF_TIMER_REMAINING])
+        cg.add(var.set_timer_remaining_sensor(remaining_sensor))
 
     for test_button_config in config.get(CONF_TEST_BUTTONS, []):
         test_button = await button.new_button(test_button_config)

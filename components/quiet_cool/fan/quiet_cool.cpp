@@ -118,7 +118,20 @@ namespace esphome {
             this->qc_->setRemoteListeningEnabled(this->remote_listening_enabled_);
             if (this->remote_listener_switch_ != nullptr)
                 this->remote_listener_switch_->publish_state(this->remote_listening_enabled_);
+            if (this->polling_interval_number_ != nullptr)
+                this->polling_interval_number_->publish_state(this->status_poll_interval_seconds_);
+            if (this->status_polling_enabled_ && !this->has_remote_id_) {
+                ESP_LOGW(TAG, "Status polling requested but no remote ID is configured or learned; disabling polling");
+                this->status_polling_enabled_ = false;
+            }
+            if (this->status_polling_switch_ != nullptr)
+                this->status_polling_switch_->publish_state(this->status_polling_enabled_);
+            if (this->timer_select_ != nullptr)
+                this->timer_select_->publish_state(0);
+            this->publish_timer_remaining_();
             this->set_learning_status_(this->has_remote_id_ ? "Ready" : "Not Configured");
+            if (this->status_polling_enabled_)
+                this->send_status_query_();
             ESP_LOGD(TAG, "QuietCool initialized");
         }
 
@@ -263,12 +276,23 @@ namespace esphome {
                 }
             }
 
-            if (this->remote_timer_active_ &&
-                static_cast<int32_t>(millis() - this->remote_off_at_) >= 0) {
-                this->remote_timer_active_ = false;
-                this->state = false;
-                ESP_LOGI(TAG, "Remote timer elapsed; publishing fan OFF");
-                this->publish_state();
+            if (this->remote_timer_active_) {
+                const uint32_t now = millis();
+                if (static_cast<int32_t>(now - this->remote_off_at_) >= 0) {
+                    this->remote_timer_active_ = false;
+                    this->state = false;
+                    ESP_LOGI(TAG, "Remote timer elapsed; publishing fan OFF");
+                    this->publish_timer_remaining_();
+                    this->publish_state();
+                } else if (static_cast<uint32_t>(now - this->last_timer_sensor_publish_at_) >= 60000) {
+                    this->publish_timer_remaining_();
+                }
+            }
+
+            if (this->status_polling_enabled_ && !this->learning_active_ &&
+                static_cast<uint32_t>(millis() - this->last_status_poll_at_) >=
+                    static_cast<uint32_t>(this->status_poll_interval_seconds_) * 1000UL) {
+                this->send_status_query_();
             }
         }
 
@@ -296,7 +320,7 @@ namespace esphome {
                 qcspd = QUIETCOOL_SPEED_HIGH;
                 qcdur = QUIETCOOL_DURATION_OFF;
             } else {
-                qcdur = QUIETCOOL_DURATION_ON;
+                qcdur = this->configured_timer_duration_;
                 qcspd = this->to_radio_speed_(requested_speed);
             }
 
@@ -306,7 +330,7 @@ namespace esphome {
             this->state = requested_state;
             if (requested_state)
                 this->speed = std::max(1, std::min(static_cast<int>(this->speed_count_), requested_speed));
-            this->remote_timer_active_ = false;
+            this->start_timer_(requested_state ? qcdur : QUIETCOOL_DURATION_OFF);
 
             ESP_LOGV(TAG, "Post-update internal state: state=%s speed=%d",
                      this->state ? "ON" : "OFF", this->speed);
@@ -317,6 +341,7 @@ namespace esphome {
             if (command.duration == QUIETCOOL_DURATION_OFF) {
                 this->state = false;
                 this->remote_timer_active_ = false;
+                this->publish_timer_remaining_();
             } else {
                 const int received_speed = this->from_radio_speed_(command.speed);
                 if (received_speed == 0) {
@@ -325,20 +350,78 @@ namespace esphome {
                 }
                 this->state = true;
                 this->speed = received_speed;
-
-                if (command.duration == QUIETCOOL_DURATION_ON) {
-                    this->remote_timer_active_ = false;
-                } else {
-                    const uint32_t duration_ms =
-                        static_cast<uint32_t>(command.duration) * 60UL * 60UL * 1000UL;
-                    this->remote_off_at_ = millis() + duration_ms;
-                    this->remote_timer_active_ = true;
-                }
+                this->start_timer_(command.duration);
+                this->sync_timer_select_(command.duration);
             }
 
             ESP_LOGI(TAG, "Publishing physical remote state: %s, speed %d, command 0x%02X",
                      this->state ? "ON" : "OFF", this->speed, command.code);
             this->publish_state();
+        }
+
+        void QuietCoolFan::set_timer_duration(size_t option_index) {
+            static constexpr QuietCoolDuration DURATIONS[] = {
+                QUIETCOOL_DURATION_ON,
+                QUIETCOOL_DURATION_1H,
+                QUIETCOOL_DURATION_2H,
+                QUIETCOOL_DURATION_4H,
+                QUIETCOOL_DURATION_8H,
+                QUIETCOOL_DURATION_12H,
+            };
+            if (option_index >= sizeof(DURATIONS) / sizeof(DURATIONS[0])) {
+                ESP_LOGW(TAG, "Ignoring invalid timer option index %u", static_cast<unsigned>(option_index));
+                return;
+            }
+            this->configured_timer_duration_ = DURATIONS[option_index];
+            if (this->timer_select_ != nullptr)
+                this->timer_select_->publish_state(option_index);
+
+            if (this->state && this->qc_ != nullptr && this->has_remote_id_) {
+                this->qc_->send(this->to_radio_speed_(this->speed), this->configured_timer_duration_);
+                this->start_timer_(this->configured_timer_duration_);
+                ESP_LOGI(TAG, "Updated running fan timer to option %u", static_cast<unsigned>(option_index));
+            }
+        }
+
+        void QuietCoolFan::start_timer_(QuietCoolDuration duration) {
+            if (duration == QUIETCOOL_DURATION_ON || duration == QUIETCOOL_DURATION_OFF) {
+                this->remote_timer_active_ = false;
+                this->publish_timer_remaining_();
+                return;
+            }
+            const uint32_t duration_ms = static_cast<uint32_t>(duration) * 60UL * 60UL * 1000UL;
+            this->remote_off_at_ = millis() + duration_ms;
+            this->remote_timer_active_ = true;
+            this->publish_timer_remaining_();
+        }
+
+        void QuietCoolFan::publish_timer_remaining_() {
+            if (this->timer_remaining_sensor_ == nullptr)
+                return;
+            float remaining_hours = 0.0f;
+            if (this->remote_timer_active_) {
+                const int32_t remaining_ms = static_cast<int32_t>(this->remote_off_at_ - millis());
+                if (remaining_ms > 0)
+                    remaining_hours = static_cast<float>(remaining_ms) / 3600000.0f;
+            }
+            this->timer_remaining_sensor_->publish_state(remaining_hours);
+            this->last_timer_sensor_publish_at_ = millis();
+        }
+
+        void QuietCoolFan::sync_timer_select_(QuietCoolDuration duration) {
+            if (this->timer_select_ == nullptr || duration == QUIETCOOL_DURATION_OFF)
+                return;
+            size_t index = 0;
+            switch (duration) {
+                case QUIETCOOL_DURATION_1H: index = 1; break;
+                case QUIETCOOL_DURATION_2H: index = 2; break;
+                case QUIETCOOL_DURATION_4H: index = 3; break;
+                case QUIETCOOL_DURATION_8H: index = 4; break;
+                case QUIETCOOL_DURATION_12H: index = 5; break;
+                case QUIETCOOL_DURATION_ON: default: index = 0; break;
+            }
+            this->configured_timer_duration_ = duration;
+            this->timer_select_->publish_state(index);
         }
 
         void QuietCoolFan::dump_config() {
@@ -401,6 +484,44 @@ namespace esphome {
                      enabled ? "" : "; 0x66 status-query replies will still be accepted briefly");
         }
 
+        bool QuietCoolFan::set_status_polling_enabled(bool enabled) {
+            if (enabled && this->learning_active_) {
+                ESP_LOGW(TAG, "Cannot enable status polling while remote learning is active");
+                this->status_polling_enabled_ = false;
+                return false;
+            }
+            if (enabled && (this->qc_ == nullptr || !this->has_remote_id_)) {
+                ESP_LOGW(TAG, "Cannot enable 0x66 status polling without a configured or learned remote ID");
+                this->status_polling_enabled_ = false;
+                return false;
+            }
+            this->status_polling_enabled_ = enabled;
+            if (enabled)
+                this->send_status_query_();
+            ESP_LOGI(TAG, "Automatic 0x66 status polling %s", enabled ? "enabled" : "disabled");
+            return enabled;
+        }
+
+        void QuietCoolFan::set_status_poll_interval(float interval_seconds) {
+            if (interval_seconds < 10.0f || interval_seconds > 3600.0f)
+                return;
+            this->status_poll_interval_seconds_ = static_cast<uint16_t>(interval_seconds + 0.5f);
+            if (this->polling_interval_number_ != nullptr)
+                this->polling_interval_number_->publish_state(this->status_poll_interval_seconds_);
+            this->last_status_poll_at_ = millis();
+            ESP_LOGI(TAG, "0x66 status poll interval set to %u seconds",
+                     static_cast<unsigned>(this->status_poll_interval_seconds_));
+        }
+
+        void QuietCoolFan::send_status_query_() {
+            if (this->qc_ == nullptr || !this->has_remote_id_)
+                return;
+            ESP_LOGI(TAG, "Polling fan status with 0x66 (next poll in %u seconds)",
+                     static_cast<unsigned>(this->status_poll_interval_seconds_));
+            this->qc_->sendCommand(0x66);
+            this->last_status_poll_at_ = millis();
+        }
+
         void QuietCoolFan::finish_learning_(const std::array<uint8_t, 7> &id) {
             const auto previous_id = this->remote_id_;
             this->remote_id_ = id;
@@ -435,6 +556,23 @@ namespace esphome {
             if (this->parent_ != nullptr)
                 this->parent_->set_remote_listening(state);
             this->publish_state(state);
+        }
+
+        void QuietCoolStatusPollingSwitch::write_state(bool state) {
+            bool actual_state = false;
+            if (this->parent_ != nullptr)
+                actual_state = this->parent_->set_status_polling_enabled(state);
+            this->publish_state(actual_state);
+        }
+
+        void QuietCoolPollingIntervalNumber::control(float value) {
+            if (this->parent_ != nullptr)
+                this->parent_->set_status_poll_interval(value);
+        }
+
+        void QuietCoolTimerSelect::control(size_t index) {
+            if (this->parent_ != nullptr)
+                this->parent_->set_timer_duration(index);
         }
 
         void QuietCoolFrequencyNumber::control(float value) {

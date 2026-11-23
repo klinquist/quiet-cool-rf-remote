@@ -125,12 +125,21 @@ fan:
     # speed_count: 2
     # center_freq_mhz: 433.897
     # deviation_khz: 10
-    # If center_freq_mhz or deviation_khz is omitted, its Home Assistant
-    # tuning control is created automatically. Explicit YAML values stay fixed.
-    # Home Assistant Configuration switch: turn off to ignore unsolicited
-    # physical remote frames while testing fan replies to a 0x66 query.
-    # remote_listener:
-    #   name: "Listen to Physical Remote"
+    # Frequency controls are created automatically under HA Configuration.
+    # To disable them, set frequency_controls: {}.
+    # Optional listener control; omitted by default:
+    # remote_listener: {}
+    # Optional 0x66 polling controls under HA Configuration:
+    # status_polling:
+    #   enabled: false
+    #   interval_seconds: 30
+    # Optional timer selector and remaining-time sensor. Add a Gauge card
+    # in Home Assistant using the remaining-time sensor for a dial display.
+    # timer:
+    #   control:
+    #     name: "QuietCool Timer"
+    #   remaining:
+    #     name: "QuietCool Time Remaining"
     # To customize control names, or explicitly choose controls:
     # frequency_controls:
     #   center_freq_mhz:
@@ -161,8 +170,10 @@ fan:
 | `speed_count`     | No       | int (2 or 3) | 3         | Set to `2` for LOW/HIGH fans, or `3` for LOW/MEDIUM/HIGH fans.               |
 | `center_freq_mhz` | No       | float        | 433.897    | Center frequency in MHz for RF transmission.                                |
 | `deviation_khz`   | No       | float        | 10         | Frequency deviation (spread) in kHz for FSK modulation.                     |
-| `frequency_controls` | No    | map          | automatic  | Optional overrides for Home Assistant tuning controls. By default, a control is created for each frequency setting omitted from YAML. The controls appear under Configuration. An explicit map selects the controls and can set their names; an empty map disables them. |
-| `remote_listener` | No       | entity       | enabled   | Creates a Configuration switch to enable/ignore unsolicited physical-remote frames. When disabled, replies are still accepted for 2 seconds after sending command `0x66`. |
+| `frequency_controls` | No    | map          | automatic  | Creates center-frequency and deviation controls under Configuration, even when YAML values are set. An explicit map selects controls and names; an empty map disables them. |
+| `remote_listener` | No       | entity       | omitted   | Optional Configuration switch to enable/ignore unsolicited physical-remote frames. This switch is created only when this parameter is present. When disabled, replies are still accepted for 2 seconds after sending command `0x66`. |
+| `status_polling` | No       | map       | disabled   | Optional Configuration switch to poll fan status with `0x66`, plus a poll-interval control. Polling is off by default; the default interval is 30 seconds and the adjustable range is 10 to 3600 seconds. |
+| `timer` | No       | map       | disabled   | Enables the timer duration select and remaining-time sensor. The select offers no timer, 1, 2, 4, 8, or 12 hours. Received timer commands are decoded even when this option is omitted. |
 | `learn_button`    | No       | entity       | enabled   | Creates the `QuietCool Learn Remote` button under Configuration.            |
 | `learning_status` | No       | entity       | enabled   | Creates the learning status text sensor under Diagnostics.                   |
 | `rx_packet_sensor` | No      | entity       | enabled   | Creates the `QuietCool RF Activity` diagnostic sensor. Each matching remote frame reports its command byte, including unknown commands. |
@@ -183,12 +194,19 @@ test command does not directly change the fan entity's state. If command `0x66`
 elicits a decodable status reply, that reply can update the fan state. This can
 help check whether the CC1101 transmitter reaches the fan independently of the
 normal speed command mapping.
-The `Listen to Physical Remote` switch defaults to on. Turn it off to prevent
-unsolicited transmissions from the handheld remote from changing the Home
-Assistant fan state. The radio still receives during a short response window
-after a test button sends `0x66`, so you can inspect the fan's reply without
-the handheld remote's idle-time traffic being applied as state changes. Turn
-the switch back on to resume normal physical-remote tracking.
+If the `remote_listener` parameter is present, its Configuration switch
+defaults to on. Turn it off to prevent unsolicited transmissions from the
+handheld remote from changing the Home Assistant fan state. The radio still
+receives during a short response window after a test button or polling sends
+`0x66`, so matching status replies can update the state. Without this YAML
+parameter, physical-remote listening stays enabled and no switch is created.
+
+The optional `status_polling` block creates a Configuration switch for
+periodic `0x66` queries and an interval control in seconds. Polling is off by
+default; enabling it sends an immediate query and then repeats at the selected
+interval. If polling is enabled in YAML, the node starts polling after boot.
+Polling requires a configured or learned remote ID and pauses during remote
+learning.
 
 ## Automatic Remote Learning
 
@@ -232,13 +250,12 @@ The register choices follow TI's [CC1101 datasheet, synchronous serial
 operation and GDO configuration](https://www.ti.com/lit/ds/symlink/cc1101.pdf)
 and the bundled ELECHOUSE driver.
 
-When `frequency_controls` are exposed, the Home Assistant number entities
-immediately retune the CC1101. Center frequency can be set from 433.000 to
-434.500 MHz in 1 kHz increments, and deviation from 1 to 100 kHz in 0.5 kHz
-increments. Runtime changes to unconfigured YAML settings are stored in
-ESPHome preferences and restored on later boots. Explicit YAML settings take
-precedence over saved values; clearing preferences resets automatically
-exposed controls to their defaults.
+The Home Assistant center-frequency and deviation number entities appear
+under Configuration by default and immediately retune the CC1101. Center
+frequency can be set from 433.000 to 434.500 MHz in 1 kHz increments, and
+deviation from 1 to 100 kHz in 0.5 kHz increments. Runtime changes are stored
+in ESPHome preferences and restored on later boots. YAML values are used when
+there is no saved value; `frequency_controls: {}` disables the controls.
 
 When the receiver hears a duplicated command frame for the configured remote
 ID that does not map to a supported fan speed/duration, the ESPHome activity
@@ -268,9 +285,37 @@ to be used, clear the device's ESPHome preferences/NVS before rebooting.
 - Learning uses the CC1101 synchronous serial mode and has not been verified
   on hardware by this change. It requires an ESP32 Arduino target, a CC1101,
   and a compatible physical QuietCool remote.
-- Fan state remains command tracking, not feedback from the fan. A lost
-  physical-remote transmission or a fan power interruption can leave Home
-  Assistant state out of sync.
+- Physical-remote commands update Home Assistant state. The fan can also send
+  status frames after a `0x66` query; see the command reference below. A lost
+  command or status reply can leave Home Assistant state out of sync.
+
+## Known QuietCool Command Bytes
+
+Each command byte is sent twice in the RF payload. For speed commands, the
+upper nibble selects speed and the lower nibble selects the duration:
+
+| Duration nibble | LOW (`0x9x`) | MEDIUM (`0xAx`) | HIGH (`0xBx`) | Meaning |
+|---|---:|---:|---:|---|
+| `0x0` | `0x90` | `0xA0` | `0xB0` | PREP/off; `0xB0` is the observed fan OFF status reply (HIGH selected, duration zero) |
+| `0x1` | `0x91` | `0xA1` | `0xB1` | On for 1 hour |
+| `0x2` | `0x92` | `0xA2` | `0xB2` | On for 2 hours |
+| `0x4` | `0x94` | `0xA4` | `0xB4` | On for 4 hours |
+| `0x8` | `0x98` | `0xA8` | `0xB8` | On for 8 hours |
+| `0xC` | `0x9C` | `0xAC` | `0xBC` | On for 12 hours |
+| `0xF` | `0x9F` | `0xAF` | `0xBF` | On continuously, no timer |
+
+| Special byte | Meaning | Current behavior |
+|---|---|---|
+| `0x66` | Setup/WAKE frame; it does not itself encode fan state. Sending it can prompt a fan status reply. | Ignored as a state command; a two-second receive window follows a locally sent `0x66`. |
+| `0x80` | Special OFF command sent by the remote/controller, as identified in PR #12. | This branch currently reports it as unknown on receive. It is distinct from the observed `0xB0` fan OFF status reply. |
+
+The speed and duration meanings follow the component decoder and PR #12. In
+the captured test, the controller sent `0x66` while the fan was off and then
+received `0xB0`; that makes `0xB0` the observed OFF status reply. `0x80` is a
+separate special OFF command, not the reply seen in that test.
+The component does not reliably distinguish whether a matching frame came
+from the handheld remote or the fan, so the `0x66` response window is useful
+for controlled status checks.
 
 ## Physical Remote State Tracking
 
@@ -283,11 +328,26 @@ Timed commands (1, 2, 4, 8, or 12 hours) also start a local countdown so the
 published state changes to off when the requested duration elapses. An `ON`
 or `OFF` command cancels that countdown.
 
-This is command tracking rather than feedback from the fan itself: the fan
-does not transmit an acknowledgement or current status. A missed RF command,
-a command from a different remote ID, or a fan power interruption can
-therefore leave the published state out of sync until the next matching
-command is received.
+The fan may also transmit a status frame after receiving a `0x66` WAKE query.
+For controlled checks, turn off the `Listen to Physical Remote` switch and
+send `0x66`; matching frames are accepted for two seconds so the fan's reply
+can update Home Assistant without unrelated handheld-remote traffic updating
+the state. A missed command or reply can still leave the published state out
+of sync.
+
+The optional `timer` block adds a timer selector under Configuration and a
+numeric estimated-time-remaining sensor in hours. Selecting a duration while
+the fan is running immediately sends the current speed with that timer,
+restarting the fan's timer. The selector also follows timer commands received
+from the physical remote or fan. The remaining sensor updates when a timer
+starts and once per minute; it reaches `0` when the timer expires or no
+countdown is active. This is a local estimate: the command byte contains the
+requested duration, and the captures so far do not establish that the fan
+reports elapsed time. Add the sensor to a Home Assistant Gauge card (for
+example, minimum `0`, maximum `12`) to display a dial. With a two-speed fan,
+`0xB1`, `0xB2`, `0xB4`, `0xB8`, and `0xBC` are the HIGH-speed timer frames;
+LOW-speed timer frames use the same duration nibble with `0x9` as the upper
+nibble.
 
 For a two-speed fan, set `speed_count: 2`. ESPHome/Home Assistant will then
 expose two speeds, map speed 1 to the LOW RF command, and map speed 2 to HIGH.
@@ -395,9 +455,6 @@ The system operates at 433.897 MHz and uses FSK modulation. The CC1101 module is
 ## Building and Uploading
 
 ```pio run --target upload```
-
-# TODO
-* Implement the timers in the esphome UI
 
 ## License
 MIT License
