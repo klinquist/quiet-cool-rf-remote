@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include "esphome/components/text_sensor/text_sensor.h"
 #include "quietcool_learning.h"
 
 /*
@@ -68,6 +69,8 @@ class QuietCool {
     volatile bool packet_ready_{false};
     uint8_t last_rx_code_{0};
     uint32_t last_rx_at_{0};
+    uint32_t rx_activity_count_{0};
+    text_sensor::TextSensor *rx_activity_sensor_{nullptr};
 
     enum class RadioMode : uint8_t { NORMAL_RX, TRANSMITTING, LEARNING, UNCONFIGURED };
     RadioMode mode_{RadioMode::UNCONFIGURED};
@@ -102,11 +105,11 @@ class QuietCool {
     void send(QuietCoolSpeed speed, QuietCoolDuration duration);
     void sendCommand(uint8_t command_code);
     void setRemoteId(const uint8_t *remote_id);
+    void setRxActivitySensor(text_sensor::TextSensor *sensor) { this->rx_activity_sensor_ = sensor; }
     bool receive(QuietCoolCommand &command);
     bool startLearning();
     void cancelLearning();
     bool captureLearningFrame(learning::Frame &frame);
-    int8_t readFrequencyEstimate();
     void setFrequencies(float center_freq_mhz, float deviation_khz);
     void getLearningCaptureStats(uint32_t &total_edges, uint16_t &buffered_bits);
     void logLearningCapture();

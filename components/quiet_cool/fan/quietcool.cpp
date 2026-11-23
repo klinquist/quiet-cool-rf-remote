@@ -4,6 +4,7 @@ typedef uint8_t byte;
 #include "esphome/core/log.h"
 #include "ELECHOUSE_CC1101_SRC_DRV.h"
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include "driver/gpio.h"
 
@@ -270,10 +271,6 @@ bool QuietCool::captureLearningFrame(learning::Frame &frame) {
     return true;
 }
 
-int8_t QuietCool::readFrequencyEstimate() {
-    return static_cast<int8_t>(ELECHOUSE_cc1101.SpiReadStatus(CC1101_FREQEST));
-}
-
 void QuietCool::setFrequencies(float center, float deviation) {
     const bool was_learning = mode_ == RadioMode::LEARNING;
     const bool was_listening = mode_ == RadioMode::NORMAL_RX;
@@ -347,8 +344,16 @@ bool QuietCool::decodePayload(const uint8_t *payload, QuietCoolCommand &command)
     const uint8_t command_code = payload[REMOTE_ID_LEN - 2];
     const uint8_t repeated_code = payload[REMOTE_ID_LEN - 1];
     if (command_code != repeated_code) {
-        ESP_LOGW(TAG, "Ignoring frame with mismatched command bytes: %02X != %02X",
-                 command_code, repeated_code);
+        ESP_LOGW(TAG, "Received mismatched command bytes %02X != %02X from remote ID %02X:%02X:%02X:%02X:%02X:%02X:%02X",
+                 command_code, repeated_code, remote_id[0], remote_id[1], remote_id[2],
+                 remote_id[3], remote_id[4], remote_id[5], remote_id[6]);
+        return false;
+    }
+
+    if (command_code == 0x66) {
+        ESP_LOGI(TAG, "Received QuietCool setup command 0x66 from remote ID %02X:%02X:%02X:%02X:%02X:%02X:%02X; leaving fan state unchanged",
+                 remote_id[0], remote_id[1], remote_id[2], remote_id[3],
+                 remote_id[4], remote_id[5], remote_id[6]);
         return false;
     }
 
@@ -361,7 +366,9 @@ bool QuietCool::decodePayload(const uint8_t *payload, QuietCoolCommand &command)
             break;
         default:
             // 0x66 is a setup/pre-command and does not represent fan state.
-            ESP_LOGV(TAG, "Ignoring non-state command 0x%02X", command_code);
+            ESP_LOGI(TAG, "Received unknown/non-state QuietCool command 0x%02X from remote ID %02X:%02X:%02X:%02X:%02X:%02X:%02X; leaving fan state unchanged",
+                     command_code, remote_id[0], remote_id[1], remote_id[2], remote_id[3],
+                     remote_id[4], remote_id[5], remote_id[6]);
             return false;
     }
 
@@ -377,7 +384,9 @@ bool QuietCool::decodePayload(const uint8_t *payload, QuietCoolCommand &command)
             command.duration = static_cast<QuietCoolDuration>(duration_code);
             break;
         default:
-            ESP_LOGW(TAG, "Ignoring command with invalid duration: 0x%02X", command_code);
+            ESP_LOGI(TAG, "Received unknown QuietCool command 0x%02X with unsupported duration from remote ID %02X:%02X:%02X:%02X:%02X:%02X:%02X; leaving fan state unchanged",
+                     command_code, remote_id[0], remote_id[1], remote_id[2], remote_id[3],
+                     remote_id[4], remote_id[5], remote_id[6]);
             return false;
     }
 
@@ -415,7 +424,37 @@ bool QuietCool::receive(QuietCoolCommand &command) {
 
     command.rssi_dbm = decodeRssi(frame[RX_PAYLOAD_LEN]);
     command.lqi = frame[RX_PAYLOAD_LEN + 1] & 0x7F;
-    if (!decodePayload(frame, command))
+    command.code = frame[REMOTE_ID_LEN - 2];
+    const bool matching_id = memcmp(frame, remote_id + 2, REMOTE_ID_LEN - 2) == 0;
+    const bool decoded = decodePayload(frame, command);
+    if (matching_id && this->rx_activity_sensor_ != nullptr) {
+        const uint8_t command_code = frame[REMOTE_ID_LEN - 2];
+        const uint8_t repeated_code = frame[REMOTE_ID_LEN - 1];
+        char activity[160];
+        const uint32_t sequence = ++this->rx_activity_count_;
+        if (command_code != repeated_code) {
+            snprintf(activity, sizeof(activity), "#%lu malformed command bytes 0x%02X/0x%02X from ID %02X:%02X:%02X:%02X:%02X:%02X:%02X",
+                     static_cast<unsigned long>(sequence), command_code, repeated_code,
+                     remote_id[0], remote_id[1], remote_id[2], remote_id[3],
+                     remote_id[4], remote_id[5], remote_id[6]);
+        } else if (command_code == 0x66) {
+            snprintf(activity, sizeof(activity), "#%lu setup command 0x66 from ID %02X:%02X:%02X:%02X:%02X:%02X:%02X",
+                     static_cast<unsigned long>(sequence), remote_id[0], remote_id[1],
+                     remote_id[2], remote_id[3], remote_id[4], remote_id[5], remote_id[6]);
+        } else if (decoded) {
+            snprintf(activity, sizeof(activity), "#%lu command 0x%02X from ID %02X:%02X:%02X:%02X:%02X:%02X:%02X",
+                     static_cast<unsigned long>(sequence), command_code,
+                     remote_id[0], remote_id[1], remote_id[2], remote_id[3],
+                     remote_id[4], remote_id[5], remote_id[6]);
+        } else {
+            snprintf(activity, sizeof(activity), "#%lu unknown command 0x%02X from ID %02X:%02X:%02X:%02X:%02X:%02X:%02X",
+                     static_cast<unsigned long>(sequence), command_code,
+                     remote_id[0], remote_id[1], remote_id[2], remote_id[3],
+                     remote_id[4], remote_id[5], remote_id[6]);
+        }
+        this->rx_activity_sensor_->publish_state(activity);
+    }
+    if (!decoded)
         return false;
 
     const uint32_t now = millis();

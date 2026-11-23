@@ -108,6 +108,7 @@ namespace esphome {
                 this->qc_.reset(new QuietCool(this->csn_pin_, this->gdo0_pin_, this->gdo2_pin_,
                     this->sck_pin_, this->miso_pin_, this->mosi_pin_, remote_id_.data(),
                     center_freq_mhz, deviation_khz));
+                this->qc_->setRxActivitySensor(this->rx_activity_sensor_);
             }
 
             if (!this->qc_->begin(this->has_remote_id_)) {
@@ -229,11 +230,6 @@ namespace esphome {
                                     ? static_cast<uint32_t>(frame_time - this->learning_confirmation_.last_frame_at)
                                     : 0;
                                 this->learning_valid_frames_++;
-                                const int8_t freq_est = this->qc_->readFrequencyEstimate();
-                                const float offset_khz = static_cast<float>(freq_est) * 26.0f / 16.384f;
-                                ESP_LOGI(TAG, "CC1101 receiver-relative offset: FREQEST=%d, estimate=%+.1f kHz from configured tuning %.3f MHz (not an absolute carrier-frequency measurement)",
-                                         static_cast<int>(freq_est), offset_khz,
-                                         this->center_freq_mhz);
                                 ESP_LOGD(TAG, "Decoded valid RF frame %u: ID %02X:%02X:%02X:%02X:%02X:%02X:%02X command=0x%02X prefix_errors=%u",
                                          static_cast<unsigned>(this->learning_valid_frames_),
                                          frame.remote_id[0], frame.remote_id[1], frame.remote_id[2],

@@ -160,6 +160,7 @@ fan:
 | `frequency_controls` | No    | map          | automatic  | Optional overrides for Home Assistant tuning controls. By default, a control is created for each frequency setting omitted from YAML. The controls appear under Configuration. An explicit map selects the controls and can set their names; an empty map disables them. |
 | `learn_button`    | No       | entity       | enabled   | Creates the `QuietCool Learn Remote` button under Configuration.            |
 | `learning_status` | No       | entity       | enabled   | Creates the learning status text sensor under Diagnostics.                   |
+| `rx_packet_sensor` | No      | entity       | enabled   | Creates the `QuietCool RF Activity` diagnostic sensor. Each matching remote frame reports its command byte, including unknown commands. |
 | `test_buttons`    | No       | list         | omitted   | Optional raw RF command buttons under Configuration; each item has a Home Assistant `name` and one-byte hex `command`. |
 
 **Note:** You must also define the SPI bus pins in your YAML:
@@ -218,19 +219,21 @@ The register choices follow TI's [CC1101 datasheet, synchronous serial
 operation and GDO configuration](https://www.ti.com/lit/ds/symlink/cc1101.pdf)
 and the bundled ELECHOUSE driver.
 
-For each valid learned frame, the CC1101 `FREQEST` register is logged as a
-signed estimate in kHz relative to the receiver's configured tuning. This is
-not an absolute carrier-frequency measurement: it includes the difference
-between the remote transmitter and receiver oscillator references. Use a
-calibrated SDR or other frequency reference to determine the absolute center
-frequency. The estimate does not retune the radio automatically. If
-`frequency_controls` is enabled, Home
-Assistant exposes number entities that immediately retune the CC1101. Center
-frequency can be set from 433.000 to 434.500 MHz in 1 kHz increments, and
-deviation from 1 to 100 kHz in 0.5 kHz increments. Runtime changes to
-unconfigured YAML settings are stored in ESPHome preferences and restored on
-later boots. Explicit YAML settings take precedence over saved values; clearing
-preferences resets automatically exposed controls to their defaults.
+When `frequency_controls` are exposed, the Home Assistant number entities
+immediately retune the CC1101. Center frequency can be set from 433.000 to
+434.500 MHz in 1 kHz increments, and deviation from 1 to 100 kHz in 0.5 kHz
+increments. Runtime changes to unconfigured YAML settings are stored in
+ESPHome preferences and restored on later boots. Explicit YAML settings take
+precedence over saved values; clearing preferences resets automatically
+exposed controls to their defaults.
+
+When the receiver hears a duplicated command frame for the configured remote
+ID that does not map to a supported fan speed/duration, the ESPHome activity
+logs show its raw command byte and remote ID. These frames do not change the
+Home Assistant fan state. Frames with a different remote ID suffix are ignored.
+The `QuietCool RF Activity` diagnostic sensor also publishes matching command
+frames, including setup and unknown commands, to make them visible in Home
+Assistant's entity history.
 
 The learned ID is stored through ESPHome's ESP32 preferences in NVS with a
 format version and checksum. Startup priority is a valid learned ID, then an

@@ -12,6 +12,7 @@ CONF_FREQ_MHZ = "center_freq_mhz"
 CONF_DEVIATION_KHZ = "deviation_khz"
 CONF_LEARN_BUTTON = "learn_button"
 CONF_LEARNING_STATUS = "learning_status"
+CONF_RX_PACKET_SENSOR = "rx_packet_sensor"
 CONF_TEST_BUTTONS = "test_buttons"
 CONF_COMMAND = "command"
 CONF_FREQUENCY_CONTROLS = "frequency_controls"
@@ -74,6 +75,9 @@ CONFIG_SCHEMA = fan.fan_schema(QuietCoolFan).extend(
         cv.Optional(CONF_LEARNING_STATUS, default={}): text_sensor.text_sensor_schema(
             QuietCoolLearningStatus, entity_category="diagnostic"
         ).extend({cv.Optional(CONF_NAME, default="QuietCool Learning Status"): cv.string}),
+        cv.Optional(CONF_RX_PACKET_SENSOR, default={}): text_sensor.text_sensor_schema(
+            entity_category="diagnostic"
+        ).extend({cv.Optional(CONF_NAME, default="QuietCool RF Activity"): cv.string}),
     }
 ).extend(cv.COMPONENT_SCHEMA).extend(spi.spi_device_schema(cs_pin_required=True))
 
@@ -156,3 +160,6 @@ async def to_code(config):
     status_sensor = await text_sensor.new_text_sensor(config[CONF_LEARNING_STATUS])
     await cg.register_component(status_sensor, config[CONF_LEARNING_STATUS])
     cg.add(var.set_learning_status_sensor(status_sensor))
+
+    rx_packet_sensor = await text_sensor.new_text_sensor(config[CONF_RX_PACKET_SENSOR])
+    cg.add(var.set_rx_activity_sensor(rx_packet_sensor))

@@ -53,6 +53,7 @@ namespace esphome {
             void set_deviation_khz(float value);
             void set_speed_count(uint8_t speed_count) { this->speed_count_ = speed_count; }
             void set_learning_status_sensor(text_sensor::TextSensor *sensor) { this->learning_status_sensor_ = sensor; }
+            void set_rx_activity_sensor(text_sensor::TextSensor *sensor) { this->rx_activity_sensor_ = sensor; }
             void start_learning();
             void send_test_command(uint8_t command_code);
             bool is_learning() const { return this->learning_active_; }
@@ -85,6 +86,7 @@ namespace esphome {
             number::Number *center_freq_number_{nullptr};
             number::Number *deviation_number_{nullptr};
             text_sensor::TextSensor *learning_status_sensor_{nullptr};
+            text_sensor::TextSensor *rx_activity_sensor_{nullptr};
 
             uint8_t csn_pin_{};
             uint8_t gdo0_pin_{};
