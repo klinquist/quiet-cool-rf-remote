@@ -230,6 +230,13 @@ bool QuietCool::captureLearningFrame(learning::Frame &frame) {
     return true;
 }
 
+void QuietCool::getLearningCaptureStats(uint32_t &total_edges, uint16_t &buffered_bits) {
+    noInterrupts();
+    total_edges = capture_total_;
+    buffered_bits = capture_count_;
+    interrupts();
+}
+
 void IRAM_ATTR QuietCool::handleGdo0Interrupt() {
     QuietCool *receiver = active_receiver_;
     if (receiver != nullptr && receiver->listening_)

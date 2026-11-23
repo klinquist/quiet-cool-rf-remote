@@ -161,12 +161,20 @@ configured `gdo2_pin`**. Both signals are required. GDO0 carries synchronous
 data during learning; GDO2 supplies the bit clock. The configured SPI bus and
 CS wiring remain required for CC1101 control.
 
-In Home Assistant, press **QuietCool Learn Remote**, then press and release a
-button on the physical QuietCool remote twice, allowing about a second between
-presses. The status sensor reports `Learning`, then `Confirming`, and finally
-`Learned`. Learning stops after 30 seconds and reports `Timeout` if it does
-not receive two separated, valid frames for the same ID. Repeated packets from
-one continuous press are grouped and cannot confirm the ID by themselves.
+In Home Assistant, press **QuietCool Learn Remote**, then press and release the
+same normal speed button on the physical QuietCool remote twice. Allow the
+remote's full delayed flashing/transmission cycle to finish after each press;
+leave about a second between completed cycles. The status sensor reports
+`Learning`, then `Confirming`, and finally `Learned`. Learning stops after 60
+seconds and reports `Timeout` if it does not receive two separated, valid
+frames for the same ID. Repeated packets from one continuous press are grouped
+and cannot confirm the ID by themselves.
+
+Discovery logs report GDO2 clock edges, buffered bits, valid decoded frames,
+remote IDs, and command bytes. If no clock edges arrive, check that the radio
+is receiving the remote transmission and that GDO2 is connected to the YAML
+pin. If edges arrive but no valid frames decode, check frequency and signal
+quality. Per-frame details are logged at DEBUG level.
 
 The CC1101 enters 2-FSK synchronous serial RX at the configured frequency
 (433.897 MHz by default). The component captures bits into a fixed-size ring
@@ -190,9 +198,9 @@ to be used, clear the device's ESPHome preferences/NVS before rebooting.
 - `Not Configured`: check CC1101 wiring, press Learn Remote, then send two
   separate physical remote presses.
 - `Error`: check CC1101 detection and SPI/CS wiring, then reboot and retry.
-- If learning times out, verify that GDO0 and GDO2 are connected to the YAML
-  pins, the remote uses the configured frequency, and the remote battery is
-  good. Keep the remote near the receiver during learning.
+- If learning times out, inspect the discovery edge/frame counts in the logs.
+  Verify GDO0/GDO2 pins, configured frequency, remote battery, and that each
+  delayed button transmission completes before the 60-second learning window.
 - A fan command during learning cancels learning and is sent if an ID is
   already available. Without an ID it is safely ignored.
 - Learning uses the CC1101 synchronous serial mode and has not been verified

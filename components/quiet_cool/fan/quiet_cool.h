@@ -61,8 +61,10 @@ namespace esphome {
                 uint8_t checksum;
             };
             static constexpr uint8_t REMOTE_PREF_VERSION = 1;
-            static constexpr uint32_t LEARNING_TIMEOUT_MS = 30000;
+            // Allow time for two remote presses whose command transmission is delayed.
+            static constexpr uint32_t LEARNING_TIMEOUT_MS = 60000;
             static constexpr uint32_t PRESS_GAP_MS = 700;
+            static constexpr uint32_t LEARNING_PROGRESS_LOG_MS = 5000;
             ESPPreferenceObject remote_pref_;
             text_sensor::TextSensor *learning_status_sensor_{nullptr};
 
@@ -84,6 +86,9 @@ namespace esphome {
             bool has_remote_id_{false};
             bool learning_active_{false};
             uint32_t learning_started_at_{0};
+            uint32_t learning_progress_log_at_{0};
+            uint32_t learning_last_reported_edges_{0};
+            uint32_t learning_valid_frames_{0};
             std::string learning_status_{"Not Configured"};
             void set_learning_status_(const char *status);
             bool save_remote_id_();

@@ -97,25 +97,67 @@ namespace esphome {
             if (this->qc_ != nullptr) {
                 if (this->learning_active_) {
                     if (static_cast<uint32_t>(millis() - this->learning_started_at_) >= LEARNING_TIMEOUT_MS) {
+                        uint32_t total_edges = 0;
+                        uint16_t buffered_bits = 0;
+                        this->qc_->getLearningCaptureStats(total_edges, buffered_bits);
                         this->learning_active_ = false;
                         this->learning_confirmation_.reset();
                         this->qc_->cancelLearning();
                         this->set_learning_status_("Timeout");
+                        ESP_LOGW(TAG, "Learning timed out: %u GDO2 clock edges, %u buffered bits, %u valid frames decoded",
+                                 static_cast<unsigned>(total_edges), static_cast<unsigned>(buffered_bits),
+                                 static_cast<unsigned>(this->learning_valid_frames_));
                     } else {
+                        const uint32_t now = millis();
+                        if (static_cast<uint32_t>(now - this->learning_progress_log_at_) >= LEARNING_PROGRESS_LOG_MS) {
+                            uint32_t total_edges = 0;
+                            uint16_t buffered_bits = 0;
+                            this->qc_->getLearningCaptureStats(total_edges, buffered_bits);
+                            if (this->learning_confirmation_.press_count == 0) {
+                                ESP_LOGI(TAG, "Learning discovery: %u GDO2 edges (+%u), %u buffered bits, %u valid frames; waiting for remote activity",
+                                         static_cast<unsigned>(total_edges),
+                                         static_cast<unsigned>(total_edges - this->learning_last_reported_edges_),
+                                         static_cast<unsigned>(buffered_bits),
+                                         static_cast<unsigned>(this->learning_valid_frames_));
+                            } else {
+                                ESP_LOGI(TAG, "Learning discovery: %u GDO2 edges (+%u), %u buffered bits, %u valid frames; waiting for a second separate press",
+                                         static_cast<unsigned>(total_edges),
+                                         static_cast<unsigned>(total_edges - this->learning_last_reported_edges_),
+                                         static_cast<unsigned>(buffered_bits),
+                                         static_cast<unsigned>(this->learning_valid_frames_));
+                            }
+                            this->learning_progress_log_at_ = now;
+                            this->learning_last_reported_edges_ = total_edges;
+                        }
                         learning::Frame frame{};
                         if (this->qc_->captureLearningFrame(frame)) {
-                            const uint32_t now = millis();
+                            const uint32_t frame_time = millis();
                             const bool had_candidate = this->learning_confirmation_.press_count != 0;
                             const bool matching_candidate = std::equal(
                                 std::begin(frame.remote_id), std::end(frame.remote_id),
                                 this->learning_confirmation_.remote_id);
-                            if (this->learning_confirmation_.observe(frame.remote_id, now, PRESS_GAP_MS)) {
+                            const uint32_t frame_gap = had_candidate && matching_candidate
+                                ? static_cast<uint32_t>(frame_time - this->learning_confirmation_.last_frame_at)
+                                : 0;
+                            this->learning_valid_frames_++;
+                            ESP_LOGD(TAG, "Decoded valid RF frame %u: ID %02X:%02X:%02X:%02X:%02X:%02X:%02X command=0x%02X",
+                                     static_cast<unsigned>(this->learning_valid_frames_),
+                                     frame.remote_id[0], frame.remote_id[1], frame.remote_id[2],
+                                     frame.remote_id[3], frame.remote_id[4], frame.remote_id[5],
+                                     frame.remote_id[6], frame.command);
+                            if (this->learning_confirmation_.observe(frame.remote_id, frame_time, PRESS_GAP_MS)) {
                                 std::array<uint8_t, 7> confirmed_id{};
                                 std::copy(std::begin(this->learning_confirmation_.remote_id),
                                           std::end(this->learning_confirmation_.remote_id), confirmed_id.begin());
+                                ESP_LOGI(TAG, "Confirmed remote ID from two separate button presses (%u ms apart)",
+                                         static_cast<unsigned>(frame_gap));
                                 this->finish_learning_(confirmed_id);
                             } else if (!had_candidate || !matching_candidate) {
                                 this->set_learning_status_("Confirming");
+                                ESP_LOGI(TAG, "First valid press captured; release the remote button, let its delayed transmission finish, then press it again");
+                            } else if (frame_gap < PRESS_GAP_MS) {
+                                ESP_LOGD(TAG, "Repeated frame from the same press (%u ms gap); it does not count as the second press",
+                                         static_cast<unsigned>(frame_gap));
                             }
                         }
                     }
@@ -222,8 +264,13 @@ namespace esphome {
             this->learning_active_ = true;
             this->learning_confirmation_.reset();
             this->learning_started_at_ = millis();
+            this->learning_progress_log_at_ = this->learning_started_at_;
+            this->learning_last_reported_edges_ = 0;
+            this->learning_valid_frames_ = 0;
             this->set_learning_status_("Learning");
-            ESP_LOGI(TAG, "Learning started; press a physical remote button twice");
+            ESP_LOGI(TAG, "Learning started for 60 seconds at %.3f MHz (GDO0 GPIO%u, GDO2 GPIO%u); press and release a remote button, allow its full delayed transmission to finish, then repeat",
+                     this->center_freq_mhz, static_cast<unsigned>(this->gdo0_pin_),
+                     static_cast<unsigned>(this->gdo2_pin_));
         }
 
         void QuietCoolFan::finish_learning_(const std::array<uint8_t, 7> &id) {
@@ -242,7 +289,8 @@ namespace esphome {
             this->qc_->cancelLearning();
             this->learning_active_ = false;
             this->set_learning_status_("Learned");
-            ESP_LOGI(TAG, "Learned and stored QuietCool remote ID");
+            ESP_LOGI(TAG, "Learned and stored QuietCool remote ID %02X:%02X:%02X:%02X:%02X:%02X:%02X",
+                     id[0], id[1], id[2], id[3], id[4], id[5], id[6]);
         }
 
         void QuietCoolLearnButton::press_action() {
