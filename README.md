@@ -157,10 +157,10 @@ fan:
 | `speed_count`     | No       | int (2 or 3) | 3         | Set to `2` for LOW/HIGH fans, or `3` for LOW/MEDIUM/HIGH fans.               |
 | `center_freq_mhz` | No       | float        | 433.897    | Center frequency in MHz for RF transmission.                                |
 | `deviation_khz`   | No       | float        | 10         | Frequency deviation (spread) in kHz for FSK modulation.                     |
-| `frequency_controls` | No    | map          | automatic  | Optional overrides for Home Assistant tuning controls. By default, a control is created for each frequency setting omitted from YAML. An explicit map selects the controls and can set their names; an empty map disables them. |
-| `learn_button`    | No       | entity       | enabled   | Creates the `QuietCool Learn Remote` Home Assistant button.                 |
-| `learning_status` | No       | entity       | enabled   | Creates the learning status text sensor.                                     |
-| `test_buttons`    | No       | list         | omitted   | Optional raw RF command buttons; each item has a Home Assistant `name` and one-byte hex `command`. |
+| `frequency_controls` | No    | map          | automatic  | Optional overrides for Home Assistant tuning controls. By default, a control is created for each frequency setting omitted from YAML. The controls appear under Configuration. An explicit map selects the controls and can set their names; an empty map disables them. |
+| `learn_button`    | No       | entity       | enabled   | Creates the `QuietCool Learn Remote` button under Configuration.            |
+| `learning_status` | No       | entity       | enabled   | Creates the learning status text sensor under Diagnostics.                   |
+| `test_buttons`    | No       | list         | omitted   | Optional raw RF command buttons under Configuration; each item has a Home Assistant `name` and one-byte hex `command`. |
 
 **Note:** You must also define the SPI bus pins in your YAML:
 

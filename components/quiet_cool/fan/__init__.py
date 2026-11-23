@@ -26,10 +26,10 @@ QuietCoolLearningStatus = quiet_cool_ns.class_(
 )
 QuietCoolFrequencyNumber = quiet_cool_ns.class_("QuietCoolFrequencyNumber", number.Number)
 CENTER_FREQUENCY_NUMBER_SCHEMA = number.number_schema(
-    QuietCoolFrequencyNumber, unit_of_measurement="MHz"
+    QuietCoolFrequencyNumber, unit_of_measurement="MHz", entity_category="config"
 ).extend({cv.Optional(CONF_NAME, default="QuietCool Center Frequency"): cv.string})
 DEVIATION_NUMBER_SCHEMA = number.number_schema(
-    QuietCoolFrequencyNumber, unit_of_measurement="kHz"
+    QuietCoolFrequencyNumber, unit_of_measurement="kHz", entity_category="config"
 ).extend({cv.Optional(CONF_NAME, default="QuietCool Frequency Deviation"): cv.string})
 
 DEPENDENCIES = ["spi"]
@@ -56,10 +56,12 @@ CONFIG_SCHEMA = fan.fan_schema(QuietCoolFan).extend(
         cv.Optional(CONF_FREQ_MHZ): cv.float_,
         cv.Optional(CONF_DEVIATION_KHZ): cv.float_,
         cv.Optional(CONF_LEARN_BUTTON, default={}): button.button_schema(
-            QuietCoolLearnButton
+            QuietCoolLearnButton, entity_category="config"
         ).extend({cv.Optional(CONF_NAME, default="QuietCool Learn Remote"): cv.string}),
         cv.Optional(CONF_TEST_BUTTONS): cv.ensure_list(
-            button.button_schema(QuietCoolTestCommandButton).extend(
+            button.button_schema(
+                QuietCoolTestCommandButton, entity_category="config"
+            ).extend(
                 {cv.Required(CONF_COMMAND): cv.hex_uint8_t}
             )
         ),
@@ -70,7 +72,7 @@ CONFIG_SCHEMA = fan.fan_schema(QuietCoolFan).extend(
             }
         ),
         cv.Optional(CONF_LEARNING_STATUS, default={}): text_sensor.text_sensor_schema(
-            QuietCoolLearningStatus
+            QuietCoolLearningStatus, entity_category="diagnostic"
         ).extend({cv.Optional(CONF_NAME, default="QuietCool Learning Status"): cv.string}),
     }
 ).extend(cv.COMPONENT_SCHEMA).extend(spi.spi_device_schema(cs_pin_required=True))
