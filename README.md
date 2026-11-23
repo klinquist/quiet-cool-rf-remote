@@ -125,6 +125,14 @@ fan:
     # speed_count: 2
     # center_freq_mhz: 433.897
     # deviation_khz: 10
+    # If center_freq_mhz or deviation_khz is omitted, its Home Assistant
+    # tuning control is created automatically. Explicit YAML values stay fixed.
+    # To customize control names, or explicitly choose controls:
+    # frequency_controls:
+    #   center_freq_mhz:
+    #     name: "QuietCool Center Frequency"
+    #   deviation_khz:
+    #     name: "QuietCool Frequency Deviation"
     # Raw RF test buttons are omitted unless configured. Each sends its
     # command byte three times using the learned/configured remote ID.
     # test_buttons:
@@ -149,6 +157,7 @@ fan:
 | `speed_count`     | No       | int (2 or 3) | 3         | Set to `2` for LOW/HIGH fans, or `3` for LOW/MEDIUM/HIGH fans.               |
 | `center_freq_mhz` | No       | float        | 433.897    | Center frequency in MHz for RF transmission.                                |
 | `deviation_khz`   | No       | float        | 10         | Frequency deviation (spread) in kHz for FSK modulation.                     |
+| `frequency_controls` | No    | map          | automatic  | Optional overrides for Home Assistant tuning controls. By default, a control is created for each frequency setting omitted from YAML. An explicit map selects the controls and can set their names; an empty map disables them. |
 | `learn_button`    | No       | entity       | enabled   | Creates the `QuietCool Learn Remote` Home Assistant button.                 |
 | `learning_status` | No       | entity       | enabled   | Creates the learning status text sensor.                                     |
 | `test_buttons`    | No       | list         | omitted   | Optional raw RF command buttons; each item has a Home Assistant `name` and one-byte hex `command`. |
@@ -182,6 +191,11 @@ leave about a second between completed cycles. The status sensor reports
 seconds and reports `Timeout` if it does not receive two separated, valid
 frames for the same ID. Repeated packets from one continuous press are grouped
 and cannot confirm the ID by themselves.
+The Home Assistant learning status sensor also includes the active or
+candidate remote ID and current center frequency and deviation, for example
+`Confirming | ID 2D:D4:06:CB:00:B9:66 | 433.883 MHz | dev 10.0 kHz`.
+Startup and learning-start ESPHome logs report the configured or learned ID
+and active tuning as well.
 
 Discovery logs report GDO2 clock edges, buffered bits, valid decoded frames,
 remote IDs, and command bytes. If no clock edges arrive, check that the radio
@@ -203,6 +217,17 @@ and ignored. After confirmation, packet-mode RX/TX is restored.
 The register choices follow TI's [CC1101 datasheet, synchronous serial
 operation and GDO configuration](https://www.ti.com/lit/ds/symlink/cc1101.pdf)
 and the bundled ELECHOUSE driver.
+
+For each valid learned frame, the CC1101 `FREQEST` register is logged as a
+signed carrier-offset estimate in kHz, with a suggested center frequency based
+on the current setting. This is an approximate receiver estimate and does not
+retune the radio automatically. If `frequency_controls` is enabled, Home
+Assistant exposes number entities that immediately retune the CC1101. Center
+frequency can be set from 433.000 to 434.500 MHz in 1 kHz increments, and
+deviation from 1 to 100 kHz in 0.5 kHz increments. Runtime changes to
+unconfigured YAML settings are stored in ESPHome preferences and restored on
+later boots. Explicit YAML settings take precedence over saved values; clearing
+preferences resets automatically exposed controls to their defaults.
 
 The learned ID is stored through ESPHome's ESP32 preferences in NVS with a
 format version and checksum. Startup priority is a valid learned ID, then an

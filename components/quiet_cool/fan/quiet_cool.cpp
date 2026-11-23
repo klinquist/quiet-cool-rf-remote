@@ -2,6 +2,7 @@
 #include "esphome/core/log.h"
 #include "quietcool.h"
 #include <algorithm>
+#include <cstdio>
 
 namespace esphome {
     namespace quiet_cool {
@@ -17,8 +18,31 @@ namespace esphome {
 
         void QuietCoolFan::set_learning_status_(const char *status) {
             this->learning_status_ = status;
+            this->publish_learning_status_();
+        }
+
+        void QuietCoolFan::publish_learning_status_() {
             if (this->learning_status_sensor_ != nullptr)
-                this->learning_status_sensor_->publish_state(this->learning_status_);
+            {
+                char remote_id[24];
+                if (this->learning_active_ && this->learning_confirmation_.press_count != 0) {
+                    const auto *id = this->learning_confirmation_.remote_id;
+                    snprintf(remote_id, sizeof(remote_id), "%02X:%02X:%02X:%02X:%02X:%02X:%02X",
+                             id[0], id[1], id[2], id[3], id[4], id[5], id[6]);
+                } else if (this->has_remote_id_) {
+                    snprintf(remote_id, sizeof(remote_id), "%02X:%02X:%02X:%02X:%02X:%02X:%02X",
+                             this->remote_id_[0], this->remote_id_[1], this->remote_id_[2],
+                             this->remote_id_[3], this->remote_id_[4], this->remote_id_[5],
+                             this->remote_id_[6]);
+                } else {
+                    snprintf(remote_id, sizeof(remote_id), "not learned");
+                }
+                char details[128];
+                snprintf(details, sizeof(details), "%s | ID %s | %.3f MHz | dev %.1f kHz",
+                         this->learning_status_.c_str(), remote_id,
+                         this->center_freq_mhz, this->deviation_khz);
+                this->learning_status_sensor_->publish_state(details);
+            }
         }
 
         bool QuietCoolFan::save_remote_id_() {
@@ -43,6 +67,23 @@ namespace esphome {
 
             this->remote_pref_ = global_preferences->make_preference<RemotePreference>(
                 this->get_object_id_hash() ^ 0x51435246U, true);
+            this->frequency_pref_ = global_preferences->make_preference<FrequencyPreference>(
+                this->get_object_id_hash() ^ 0x46524551U, true);
+            FrequencyPreference saved_frequency{};
+            if (this->frequency_pref_.load(&saved_frequency) && saved_frequency.version == 1 &&
+                saved_frequency.center_freq_mhz >= 433.0f && saved_frequency.center_freq_mhz <= 434.5f &&
+                saved_frequency.deviation_khz >= 1.0f && saved_frequency.deviation_khz <= 100.0f) {
+                if (!this->center_freq_fixed_)
+                    this->center_freq_mhz = saved_frequency.center_freq_mhz;
+                if (!this->deviation_fixed_)
+                    this->deviation_khz = saved_frequency.deviation_khz;
+                ESP_LOGI(TAG, "Loaded RF tuning from preferences: center %.3f MHz, deviation %.1f kHz",
+                         this->center_freq_mhz, this->deviation_khz);
+            }
+            if (this->center_freq_number_ != nullptr)
+                this->center_freq_number_->publish_state(this->center_freq_mhz);
+            if (this->deviation_number_ != nullptr)
+                this->deviation_number_->publish_state(this->deviation_khz);
             RemotePreference saved{};
             if (this->remote_pref_.load(&saved) && saved.version == REMOTE_PREF_VERSION &&
                 saved.checksum == remote_checksum_(saved.id)) {
@@ -52,8 +93,16 @@ namespace esphome {
             } else {
                 this->has_remote_id_ = this->remote_id_configured_;
             }
-            if (this->learning_status_sensor_ != nullptr)
-                this->learning_status_sensor_->publish_state(this->learning_status_);
+            if (this->has_remote_id_)
+                ESP_LOGI(TAG, "Active QuietCool remote ID: %02X:%02X:%02X:%02X:%02X:%02X:%02X",
+                         this->remote_id_[0], this->remote_id_[1], this->remote_id_[2],
+                         this->remote_id_[3], this->remote_id_[4], this->remote_id_[5],
+                         this->remote_id_[6]);
+            else
+                ESP_LOGI(TAG, "No QuietCool remote ID configured or learned yet");
+            ESP_LOGI(TAG, "Active RF tuning: center %.3f MHz, deviation %.1f kHz",
+                     this->center_freq_mhz, this->deviation_khz);
+            this->publish_learning_status_();
 
             if (this->qc_ == nullptr) {
                 this->qc_.reset(new QuietCool(this->csn_pin_, this->gdo0_pin_, this->gdo2_pin_,
@@ -67,6 +116,38 @@ namespace esphome {
             }
             this->set_learning_status_(this->has_remote_id_ ? "Ready" : "Not Configured");
             ESP_LOGD(TAG, "QuietCool initialized");
+        }
+
+        void QuietCoolFan::set_center_freq_mhz(float value) {
+            if (value < 433.0f || value > 434.5f || this->qc_ == nullptr)
+                return;
+            this->center_freq_mhz = value;
+            this->qc_->setFrequencies(this->center_freq_mhz, this->deviation_khz);
+            FrequencyPreference saved{1, this->center_freq_mhz, this->deviation_khz};
+            if (!this->frequency_pref_.save(&saved) || !global_preferences->sync())
+                ESP_LOGE(TAG, "Failed to persist RF tuning settings");
+            if (this->center_freq_number_ != nullptr)
+                this->center_freq_number_->publish_state(value);
+            this->learning_confirmation_.reset();
+            this->learning_valid_frames_ = 0;
+            this->publish_learning_status_();
+            ESP_LOGI(TAG, "Updated RF center frequency to %.3f MHz", value);
+        }
+
+        void QuietCoolFan::set_deviation_khz(float value) {
+            if (value < 1.0f || value > 100.0f || this->qc_ == nullptr)
+                return;
+            this->deviation_khz = value;
+            this->qc_->setFrequencies(this->center_freq_mhz, this->deviation_khz);
+            FrequencyPreference saved{1, this->center_freq_mhz, this->deviation_khz};
+            if (!this->frequency_pref_.save(&saved) || !global_preferences->sync())
+                ESP_LOGE(TAG, "Failed to persist RF tuning settings");
+            if (this->deviation_number_ != nullptr)
+                this->deviation_number_->publish_state(value);
+            this->learning_confirmation_.reset();
+            this->learning_valid_frames_ = 0;
+            this->publish_learning_status_();
+            ESP_LOGI(TAG, "Updated RF deviation to %.1f kHz", value);
         }
 
         fan::FanTraits QuietCoolFan::get_traits() {
@@ -148,6 +229,12 @@ namespace esphome {
                                     ? static_cast<uint32_t>(frame_time - this->learning_confirmation_.last_frame_at)
                                     : 0;
                                 this->learning_valid_frames_++;
+                                const int8_t freq_est = this->qc_->readFrequencyEstimate();
+                                const float offset_khz = static_cast<float>(freq_est) * 26.0f / 16.384f;
+                                ESP_LOGI(TAG, "CC1101 carrier estimate: FREQEST=%d, offset=%+.1f kHz; suggested center near %.3f MHz (configured %.3f MHz)",
+                                         static_cast<int>(freq_est), offset_khz,
+                                         this->center_freq_mhz + offset_khz / 1000.0f,
+                                         this->center_freq_mhz);
                                 ESP_LOGD(TAG, "Decoded valid RF frame %u: ID %02X:%02X:%02X:%02X:%02X:%02X:%02X command=0x%02X prefix_errors=%u",
                                          static_cast<unsigned>(this->learning_valid_frames_),
                                          frame.remote_id[0], frame.remote_id[1], frame.remote_id[2],
@@ -278,9 +365,18 @@ namespace esphome {
             this->learning_last_reported_edges_ = 0;
             this->learning_valid_frames_ = 0;
             this->set_learning_status_("Learning");
-            ESP_LOGI(TAG, "Learning started for 60 seconds at %.3f MHz (GDO0 GPIO%u, GDO2 GPIO%u); press and release a remote button, allow its full delayed transmission to finish, then repeat",
-                     this->center_freq_mhz, static_cast<unsigned>(this->gdo0_pin_),
-                     static_cast<unsigned>(this->gdo2_pin_));
+            char remote_id[24];
+            if (this->has_remote_id_)
+                snprintf(remote_id, sizeof(remote_id), "%02X:%02X:%02X:%02X:%02X:%02X:%02X",
+                         this->remote_id_[0], this->remote_id_[1], this->remote_id_[2],
+                         this->remote_id_[3], this->remote_id_[4], this->remote_id_[5],
+                         this->remote_id_[6]);
+            else
+                snprintf(remote_id, sizeof(remote_id), "not learned");
+            ESP_LOGI(TAG, "Learning started for 60 seconds: remote ID %s, center %.3f MHz, deviation %.1f kHz (GDO0 GPIO%u, GDO2 GPIO%u); press and release a remote button, allow its full delayed transmission to finish, then repeat",
+                     remote_id,
+                     this->center_freq_mhz, this->deviation_khz,
+                     static_cast<unsigned>(this->gdo0_pin_), static_cast<unsigned>(this->gdo2_pin_));
         }
 
         void QuietCoolFan::send_test_command(uint8_t command_code) {
@@ -327,6 +423,15 @@ namespace esphome {
         void QuietCoolTestCommandButton::press_action() {
             if (this->parent_ != nullptr)
                 this->parent_->send_test_command(this->command_);
+        }
+
+        void QuietCoolFrequencyNumber::control(float value) {
+            if (this->parent_ == nullptr)
+                return;
+            if (this->center_frequency_)
+                this->parent_->set_center_freq_mhz(value);
+            else
+                this->parent_->set_deviation_khz(value);
         }
     }  // namespace quiet_cool
 }  // namespace esphome

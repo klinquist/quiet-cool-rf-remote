@@ -5,6 +5,7 @@
 #include "esphome/components/spi/spi.h"
 #include "esphome/components/button/button.h"
 #include "esphome/components/text_sensor/text_sensor.h"
+#include "esphome/components/number/number.h"
 #include "esphome/core/preferences.h"
 #include "quietcool.h"
 #include <array>
@@ -42,6 +43,14 @@ namespace esphome {
 		this->center_freq_mhz = center_freq_mhz;
 		this->deviation_khz = deviation_khz;
 	    }
+            void set_frequency_fixed(bool center, bool deviation) {
+                this->center_freq_fixed_ = center;
+                this->deviation_fixed_ = deviation;
+            }
+            void set_center_freq_number(number::Number *number) { this->center_freq_number_ = number; }
+            void set_deviation_number(number::Number *number) { this->deviation_number_ = number; }
+            void set_center_freq_mhz(float value);
+            void set_deviation_khz(float value);
             void set_speed_count(uint8_t speed_count) { this->speed_count_ = speed_count; }
             void set_learning_status_sensor(text_sensor::TextSensor *sensor) { this->learning_status_sensor_ = sensor; }
             void start_learning();
@@ -61,12 +70,20 @@ namespace esphome {
                 uint8_t id[7];
                 uint8_t checksum;
             };
+            struct FrequencyPreference {
+                uint8_t version;
+                float center_freq_mhz;
+                float deviation_khz;
+            };
             static constexpr uint8_t REMOTE_PREF_VERSION = 1;
             // Allow time for two remote presses whose command transmission is delayed.
             static constexpr uint32_t LEARNING_TIMEOUT_MS = 60000;
             static constexpr uint32_t PRESS_GAP_MS = 700;
             static constexpr uint32_t LEARNING_PROGRESS_LOG_MS = 5000;
             ESPPreferenceObject remote_pref_;
+            ESPPreferenceObject frequency_pref_;
+            number::Number *center_freq_number_{nullptr};
+            number::Number *deviation_number_{nullptr};
             text_sensor::TextSensor *learning_status_sensor_{nullptr};
 
             uint8_t csn_pin_{};
@@ -78,6 +95,8 @@ namespace esphome {
 	    uint8_t speed_count_{3};
 	    float center_freq_mhz{433.897};
 	    float deviation_khz{10};
+            bool center_freq_fixed_{false};
+            bool deviation_fixed_{false};
             bool pins_set_{false};
             bool remote_timer_active_{false};
             uint32_t remote_off_at_{0};
@@ -92,6 +111,7 @@ namespace esphome {
             uint32_t learning_valid_frames_{0};
             std::string learning_status_{"Not Configured"};
             void set_learning_status_(const char *status);
+            void publish_learning_status_();
             bool save_remote_id_();
             static uint8_t remote_checksum_(const uint8_t *id);
             void finish_learning_(const std::array<uint8_t, 7> &id);
@@ -125,6 +145,19 @@ namespace esphome {
         class QuietCoolLearningStatus : public Component, public text_sensor::TextSensor {
          public:
             void setup() override {}
+        };
+
+        class QuietCoolFrequencyNumber : public number::Number {
+         public:
+            void set_parent(QuietCoolFan *parent, bool center_frequency) {
+                this->parent_ = parent;
+                this->center_frequency_ = center_frequency;
+            }
+         protected:
+            void control(float value) override;
+         private:
+            QuietCoolFan *parent_{nullptr};
+            bool center_frequency_{false};
         };
 
     }  // namespace quiet_cool

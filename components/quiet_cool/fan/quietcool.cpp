@@ -270,6 +270,32 @@ bool QuietCool::captureLearningFrame(learning::Frame &frame) {
     return true;
 }
 
+int8_t QuietCool::readFrequencyEstimate() {
+    return static_cast<int8_t>(ELECHOUSE_cc1101.SpiReadStatus(CC1101_FREQEST));
+}
+
+void QuietCool::setFrequencies(float center, float deviation) {
+    const bool was_learning = mode_ == RadioMode::LEARNING;
+    const bool was_listening = mode_ == RadioMode::NORMAL_RX;
+    if (was_learning)
+        stopLearning();
+    else if (was_listening) {
+        detachInterrupt(digitalPinToInterrupt(gdo0_pin));
+        listening_ = false;
+        ELECHOUSE_cc1101.setSidle();
+    }
+
+    center_freq_mhz = center;
+    deviation_khz = deviation;
+    ELECHOUSE_cc1101.setMHZ(center_freq_mhz);
+    ELECHOUSE_cc1101.setDeviation(deviation_khz);
+
+    if (was_learning)
+        startLearning();
+    else if (was_listening)
+        startListening();
+}
+
 void QuietCool::getLearningCaptureStats(uint32_t &total_edges, uint16_t &buffered_bits) {
     noInterrupts();
     total_edges = capture_total_;
