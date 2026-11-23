@@ -183,8 +183,10 @@ infinite packet length at the configured frequency (433.897 MHz by default).
 The component captures bits into a fixed-size ring
 buffer from the GDO2 clock interrupt, then scans outside the ISR for the fixed
 QuietCool prefix and validates the ID and duplicated LOW/MEDIUM/HIGH command
-bytes, including supported timer durations. The 0x66 setup command and
-malformed frames are ignored. After confirmation, packet-mode RX/TX is restored.
+bytes, including supported timer durations. Up to two bit errors are tolerated
+in the long prefix; duplicated command bytes remain exact. Recognized 0x66
+setup frames are logged and ignored. After confirmation, packet-mode RX/TX is
+restored.
 The register choices follow TI's [CC1101 datasheet, synchronous serial
 operation and GDO configuration](https://www.ti.com/lit/ds/symlink/cc1101.pdf)
 and the bundled ELECHOUSE driver.

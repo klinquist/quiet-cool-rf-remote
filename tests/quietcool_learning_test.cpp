@@ -36,7 +36,19 @@ int main() {
       assert(frame.remote_id[i] == id[i]);
     assert(frame.command == 0x9F);
     assert(frame.end_bit == offset + FRAME_BITS);
+    assert(frame.prefix_errors == 0);
   }
+
+  // Small RF errors in the repeated prefix are tolerated, but the payload
+  // checks still have to pass before the frame can be used.
+  auto noisy_prefix = make_frame(id, 0x90, 0x90);
+  noisy_prefix[10] ^= 1;
+  noisy_prefix[35] ^= 1;
+  assert(find_frame(noisy_prefix.data(), noisy_prefix.size(), frame));
+  assert(frame.command == 0x90);
+  assert(frame.prefix_errors == 2);
+  noisy_prefix[60] ^= 1;
+  assert(!find_frame(noisy_prefix.data(), noisy_prefix.size(), frame));
 
   // The duplicated command bytes and known speed/duration nibbles are checked.
   const uint8_t commands[] = {0x90, 0x91, 0x92, 0x94, 0x98, 0x9C, 0x9F,
@@ -52,7 +64,8 @@ int main() {
   auto bad_duplicate = make_frame(id, 0x90, 0x91);
   assert(!find_frame(bad_duplicate.data(), bad_duplicate.size(), frame));
   auto setup_command = make_frame(id, 0x66, 0x66);
-  assert(!find_frame(setup_command.data(), setup_command.size(), frame));
+  assert(find_frame(setup_command.data(), setup_command.size(), frame));
+  assert(frame.command == 0x66);
 
   // The three packets from one press cannot confirm a second press. A later
   // frame after the required quiet interval confirms the same remote ID.

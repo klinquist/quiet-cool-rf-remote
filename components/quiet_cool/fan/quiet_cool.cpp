@@ -133,33 +133,41 @@ namespace esphome {
                         }
                         learning::Frame frame{};
                         if (this->qc_->captureLearningFrame(frame)) {
-                            const uint32_t frame_time = millis();
-                            const bool had_candidate = this->learning_confirmation_.press_count != 0;
-                            const bool matching_candidate = std::equal(
-                                std::begin(frame.remote_id), std::end(frame.remote_id),
-                                this->learning_confirmation_.remote_id);
-                            const uint32_t frame_gap = had_candidate && matching_candidate
-                                ? static_cast<uint32_t>(frame_time - this->learning_confirmation_.last_frame_at)
-                                : 0;
-                            this->learning_valid_frames_++;
-                            ESP_LOGD(TAG, "Decoded valid RF frame %u: ID %02X:%02X:%02X:%02X:%02X:%02X:%02X command=0x%02X",
-                                     static_cast<unsigned>(this->learning_valid_frames_),
-                                     frame.remote_id[0], frame.remote_id[1], frame.remote_id[2],
-                                     frame.remote_id[3], frame.remote_id[4], frame.remote_id[5],
-                                     frame.remote_id[6], frame.command);
-                            if (this->learning_confirmation_.observe(frame.remote_id, frame_time, PRESS_GAP_MS)) {
-                                std::array<uint8_t, 7> confirmed_id{};
-                                std::copy(std::begin(this->learning_confirmation_.remote_id),
-                                          std::end(this->learning_confirmation_.remote_id), confirmed_id.begin());
-                                ESP_LOGI(TAG, "Confirmed remote ID from two separate button presses (%u ms apart)",
-                                         static_cast<unsigned>(frame_gap));
-                                this->finish_learning_(confirmed_id);
-                            } else if (!had_candidate || !matching_candidate) {
-                                this->set_learning_status_("Confirming");
-                                ESP_LOGI(TAG, "First valid press captured; release the remote button, let its delayed transmission finish, then press it again");
-                            } else if (frame_gap < PRESS_GAP_MS) {
-                                ESP_LOGD(TAG, "Repeated frame from the same press (%u ms gap); it does not count as the second press",
-                                         static_cast<unsigned>(frame_gap));
+                            if (frame.command == 0x66) {
+                                ESP_LOGI(TAG, "Recognized setup frame 0x66 for ID %02X:%02X:%02X:%02X:%02X:%02X:%02X (prefix errors=%u); ignored, waiting for a normal fan command",
+                                         frame.remote_id[0], frame.remote_id[1], frame.remote_id[2],
+                                         frame.remote_id[3], frame.remote_id[4], frame.remote_id[5],
+                                         frame.remote_id[6], static_cast<unsigned>(frame.prefix_errors));
+                            } else {
+                                const uint32_t frame_time = millis();
+                                const bool had_candidate = this->learning_confirmation_.press_count != 0;
+                                const bool matching_candidate = std::equal(
+                                    std::begin(frame.remote_id), std::end(frame.remote_id),
+                                    this->learning_confirmation_.remote_id);
+                                const uint32_t frame_gap = had_candidate && matching_candidate
+                                    ? static_cast<uint32_t>(frame_time - this->learning_confirmation_.last_frame_at)
+                                    : 0;
+                                this->learning_valid_frames_++;
+                                ESP_LOGD(TAG, "Decoded valid RF frame %u: ID %02X:%02X:%02X:%02X:%02X:%02X:%02X command=0x%02X prefix_errors=%u",
+                                         static_cast<unsigned>(this->learning_valid_frames_),
+                                         frame.remote_id[0], frame.remote_id[1], frame.remote_id[2],
+                                         frame.remote_id[3], frame.remote_id[4], frame.remote_id[5],
+                                         frame.remote_id[6], frame.command,
+                                         static_cast<unsigned>(frame.prefix_errors));
+                                if (this->learning_confirmation_.observe(frame.remote_id, frame_time, PRESS_GAP_MS)) {
+                                    std::array<uint8_t, 7> confirmed_id{};
+                                    std::copy(std::begin(this->learning_confirmation_.remote_id),
+                                              std::end(this->learning_confirmation_.remote_id), confirmed_id.begin());
+                                    ESP_LOGI(TAG, "Confirmed remote ID from two separate button presses (%u ms apart)",
+                                             static_cast<unsigned>(frame_gap));
+                                    this->finish_learning_(confirmed_id);
+                                } else if (!had_candidate || !matching_candidate) {
+                                    this->set_learning_status_("Confirming");
+                                    ESP_LOGI(TAG, "First valid press captured; release the remote button, let its delayed transmission finish, then press it again");
+                                } else if (frame_gap < PRESS_GAP_MS) {
+                                    ESP_LOGD(TAG, "Repeated frame from the same press (%u ms gap); it does not count as the second press",
+                                             static_cast<unsigned>(frame_gap));
+                                }
                             }
                         }
                     }
