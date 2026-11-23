@@ -10,7 +10,8 @@ namespace learning {
 constexpr size_t PREFIX_LENGTH = 9;
 constexpr size_t FRAME_LENGTH = 18;
 constexpr size_t FRAME_BITS = FRAME_LENGTH * 8;
-constexpr uint8_t MAX_PREFIX_BIT_ERRORS = 2;
+constexpr uint8_t MAX_PREFIX_MARKER_BIT_ERRORS = 5;
+constexpr uint8_t MAX_PREFIX_SYNC_BIT_ERRORS = 2;
 constexpr uint8_t PREFIX[PREFIX_LENGTH] = {0x15, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
 
 struct Frame {
@@ -70,24 +71,34 @@ inline uint8_t read_byte(const uint8_t *bits, size_t start) {
 }
 
 // Bits are chronological, MSB first within the on-air bytes. Search every bit
-// offset and allow a couple of errors in the long fixed prefix to tolerate RF
-// corruption. The duplicated command and supported-command checks validate
-// candidates after the tolerant prefix match.
+// offset. The leading marker can be clipped or corrupted by carrier detection;
+// the following eight-byte AA sync run stays tightly constrained. The
+// duplicated command and supported-command checks validate candidates.
 inline bool find_frame(const uint8_t *bits, size_t bit_count, Frame &frame) {
   if (bit_count < FRAME_BITS)
     return false;
   bool found = false;
   for (size_t start = 0; start + FRAME_BITS <= bit_count; start++) {
-    uint8_t prefix_errors = 0;
-    for (size_t byte = 0; byte < PREFIX_LENGTH && prefix_errors <= MAX_PREFIX_BIT_ERRORS; byte++) {
-      uint8_t differing_bits = static_cast<uint8_t>(read_byte(bits, start + byte * 8) ^ PREFIX[byte]);
+    uint8_t marker_errors = 0;
+    uint8_t differing_bits = static_cast<uint8_t>(read_byte(bits, start) ^ PREFIX[0]);
+    while (differing_bits != 0) {
+      marker_errors = static_cast<uint8_t>(marker_errors + (differing_bits & 1U));
+      differing_bits >>= 1;
+    }
+    if (marker_errors > MAX_PREFIX_MARKER_BIT_ERRORS)
+      continue;
+
+    uint8_t sync_errors = 0;
+    for (size_t byte = 1; byte < PREFIX_LENGTH && sync_errors <= MAX_PREFIX_SYNC_BIT_ERRORS; byte++) {
+      differing_bits = static_cast<uint8_t>(read_byte(bits, start + byte * 8) ^ PREFIX[byte]);
       while (differing_bits != 0) {
-        prefix_errors = static_cast<uint8_t>(prefix_errors + (differing_bits & 1U));
+        sync_errors = static_cast<uint8_t>(sync_errors + (differing_bits & 1U));
         differing_bits >>= 1;
       }
     }
-    if (prefix_errors > MAX_PREFIX_BIT_ERRORS)
+    if (sync_errors > MAX_PREFIX_SYNC_BIT_ERRORS)
       continue;
+    const uint8_t prefix_errors = static_cast<uint8_t>(marker_errors + sync_errors);
     const size_t payload = start + PREFIX_LENGTH * 8;
     const uint8_t command = read_byte(bits, payload + 7 * 8);
     if (command != read_byte(bits, payload + 8 * 8) ||

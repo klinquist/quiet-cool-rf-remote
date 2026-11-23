@@ -50,6 +50,15 @@ int main() {
   noisy_prefix[60] ^= 1;
   assert(!find_frame(noisy_prefix.data(), noisy_prefix.size(), frame));
 
+  auto clipped_marker = make_frame(id, 0xB0, 0xB0);
+  for (size_t bit = 0; bit < 5; bit++)
+    clipped_marker[bit] ^= 1;
+  assert(find_frame(clipped_marker.data(), clipped_marker.size(), frame));
+  assert(frame.command == 0xB0);
+  assert(frame.prefix_errors == 5);
+  clipped_marker[5] ^= 1;
+  assert(!find_frame(clipped_marker.data(), clipped_marker.size(), frame));
+
   // The duplicated command bytes and known speed/duration nibbles are checked.
   const uint8_t commands[] = {0x90, 0x91, 0x92, 0x94, 0x98, 0x9C, 0x9F,
                               0xA0, 0xA1, 0xA2, 0xA4, 0xA8, 0xAC, 0xAF,
