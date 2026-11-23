@@ -7,7 +7,6 @@
 #include "esphome/components/switch/switch.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/components/number/number.h"
-#include "esphome/components/select/select.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/core/preferences.h"
 #include "quietcool.h"
@@ -81,7 +80,6 @@ namespace esphome {
             }
             bool set_status_polling_enabled(bool enabled);
             void set_status_poll_interval(float interval_seconds);
-            void set_timer_select(select::Select *timer_select) { this->timer_select_ = timer_select; }
             void set_timer_remaining_sensor(sensor::Sensor *sensor) { this->timer_remaining_sensor_ = sensor; }
             void set_remote_listening(bool enabled);
             void set_timer_duration(size_t option_index);
@@ -94,7 +92,6 @@ namespace esphome {
             void apply_received_command_(const QuietCoolCommand &command);
             void publish_timer_remaining_();
             void start_timer_(QuietCoolDuration duration);
-            void sync_timer_select_(QuietCoolDuration duration);
             void send_status_query_();
             QuietCoolSpeed to_radio_speed_(int speed) const;
             int from_radio_speed_(QuietCoolSpeed speed) const;
@@ -124,7 +121,6 @@ namespace esphome {
             text_sensor::TextSensor *rx_activity_sensor_{nullptr};
             switch_::Switch *remote_listener_switch_{nullptr};
             switch_::Switch *status_polling_switch_{nullptr};
-            select::Select *timer_select_{nullptr};
             sensor::Sensor *timer_remaining_sensor_{nullptr};
             number::Number *polling_interval_number_{nullptr};
 
@@ -218,13 +214,15 @@ namespace esphome {
             QuietCoolFan *parent_{nullptr};
         };
 
-        class QuietCoolTimerSelect : public select::Select {
+        class QuietCoolTimerButton : public button::Button {
          public:
             void set_parent(QuietCoolFan *parent) { this->parent_ = parent; }
+            void set_option_index(size_t option_index) { this->option_index_ = option_index; }
          protected:
-            void control(size_t index) override;
+            void press_action() override;
          private:
             QuietCoolFan *parent_{nullptr};
+            size_t option_index_{0};
         };
 
         class QuietCoolLearningStatus : public Component, public text_sensor::TextSensor {

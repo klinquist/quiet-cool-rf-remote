@@ -136,11 +136,14 @@ fan:
     # status_polling:
     #   enabled: false
     #   interval_seconds: 30
-    # Optional timer selector and remaining-time sensor. Add a Gauge card
-    # in Home Assistant using the remaining-time sensor for a dial display.
+    # Optional timer preset buttons and remaining-time sensor. Add a Gauge
+    # card in Home Assistant using the remaining-time sensor for a dial display.
     # timer:
-    #   control:
-    #     name: "QuietCool Timer"
+    #   buttons:
+    #     1_hour:
+    #       name: "Fan Timer 1 Hour"
+    #     2_hours:
+    #       name: "Fan Timer 2 Hours"
     #   remaining:
     #     name: "QuietCool Time Remaining"
     # To customize control names, or explicitly choose controls:
@@ -176,7 +179,7 @@ fan:
 | `frequency_controls` | No    | map          | automatic  | Creates center-frequency and deviation controls under Configuration, even when YAML values are set. An explicit map selects controls and names; an empty map disables them. |
 | `remote_listener` | No       | map       | omitted   | Optional Configuration switch to enable/ignore unsolicited physical-remote frames. Add `additional_remote_ids` here to accept commands from more IDs. These IDs are receive-only; transmission and `0x66` polling use the primary `remote_id`. When disabled, primary-ID replies are still accepted for 2 seconds after a `0x66` query. |
 | `status_polling` | No       | map       | enabled, 30 seconds | Creates a Configuration switch to enable polling fan status with `0x66`, plus a poll-interval control. Polling starts 30 seconds after boot or enable; the adjustable interval range is 10 to 3600 seconds. Set `enabled: false` to disable polling by default. |
-| `timer` | No       | map       | disabled   | Enables the timer duration select and remaining-time sensor. The select offers no timer, 1, 2, 4, 8, or 12 hours. Received timer commands are decoded even when this option is omitted. |
+| `timer` | No       | map       | disabled   | Enables timer preset buttons under Controls (continuous, 1, 2, 4, 8, or 12 hours) and the remaining-time sensor. Received timer commands are decoded even when this option is omitted. Button names are customizable under `timer.buttons`; the remaining sensor name is customizable under `timer.remaining`. |
 | `learn_button`    | No       | entity       | enabled   | Creates the `QuietCool Learn Remote` button under Configuration.            |
 | `learning_status` | No       | entity       | enabled   | Creates the learning status text sensor under Diagnostics.                   |
 | `rx_packet_sensor` | No      | entity       | enabled   | Creates the `QuietCool RF Activity` diagnostic sensor. Each matching remote frame reports its command byte, including unknown commands. |
@@ -343,16 +346,18 @@ can update Home Assistant without unrelated handheld-remote traffic updating
 the state. A missed command or reply can still leave the published state out
 of sync.
 
-The optional `timer` block adds a timer selector under Configuration and a
-numeric estimated-time-remaining sensor in hours. Selecting a duration while
-the fan is running immediately sends the current speed with that timer,
-restarting the fan's timer. The selector also follows timer commands received
-from the physical remote or fan. The remaining sensor updates when a timer
-starts and once per minute; it reaches `0` when the timer expires or no
-countdown is active. This is a local estimate: the command byte contains the
-requested duration, and the captures so far do not establish that the fan
-reports elapsed time. Add the sensor to a Home Assistant Gauge card (for
-example, minimum `0`, maximum `12`) to display a dial. With a two-speed fan,
+The optional `timer` block adds buttons under Controls for continuous running
+and the 1, 2, 4, 8, and 12-hour presets, plus a numeric estimated-time-remaining
+sensor in hours. Pressing a timer button while the fan is off selects that
+duration for the next fan start. Pressing one while the fan is running
+immediately sends the current speed with that timer, restarting the countdown.
+The remaining sensor updates when a timer starts and once per minute; it
+reaches `0` when the timer expires or no countdown is active. This is a local
+estimate: the command byte contains the requested duration, and the captures
+so far do not establish that the fan reports elapsed time. Add the sensor to a
+Home Assistant Gauge card (for example, minimum `0`, maximum `12`) to display a
+dial. Customize button names through `timer.buttons` and the sensor name
+through `timer.remaining`. With a two-speed fan,
 `0xB1`, `0xB2`, `0xB4`, `0xB8`, and `0xBC` are the HIGH-speed timer frames;
 LOW-speed timer frames use the same duration nibble with `0x9` as the upper
 nibble.
