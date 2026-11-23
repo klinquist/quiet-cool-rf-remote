@@ -12,7 +12,9 @@ namespace quiet_cool {
 
 static const char *TAG = "quietcool";
 
-const uint8_t SYNC[] = {0x15, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa};
+// The CC1101 adds the 0x15AA sync word in packet mode. The remaining seven
+// 0xAA bytes are part of the payload before the remote ID.
+const uint8_t SYNC[] = {0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa};
 #define SYNC_LEN (sizeof(SYNC))
 
 #define CMD_CODE_LEN 2
@@ -34,12 +36,8 @@ QuietCool *QuietCool::active_receiver_ = nullptr;
 //
 // the special command that's sent before anything else is 0x66.
 
-// So, final packet format is:
-//     <---- SYNC -------><--- ID -----><CD>
-// 0x: 150aaaaaaaaaaaaaaaaTTUUVVWWXXYYZZGGGG
-// sync: always the same
-//   ID: unique identifier
-//   CD: command, as described above.  Two bytes duplicated.
+// On air the CC1101 sends its 0x15AA hardware sync word, followed by seven
+// 0xAA bytes, the 7-byte ID, two duplicate command bytes, and zero padding.
 
 // Helper: Convert bytes to a bit string (MSB first)
 static void bytesToBitString(const uint8_t* data, size_t len, char* bitstr, size_t maxlen) {
@@ -76,21 +74,51 @@ void QuietCool::sendRawData(const uint8_t* data, size_t len) {
     }
     ESP_LOGD(TAG, "Sending %zu bytes (%zu bits)", len, len * 8);
     logBits(data, len);
-    ELECHOUSE_cc1101.SendData((byte*)data, (byte)len);
+    // SendData() always writes a length byte to TXFIFO. That byte is only
+    // appropriate for variable-length mode; with the fixed 20-byte packet
+    // used here it shifts the QuietCool payload and the fan rejects it.
+    // Write the payload directly, as in the known-working PR #12 TX path.
+    ELECHOUSE_cc1101.SpiStrobe(CC1101_SIDLE);
+    ELECHOUSE_cc1101.SpiStrobe(CC1101_SFTX);
+    ELECHOUSE_cc1101.SpiWriteBurstReg(CC1101_TXFIFO, (byte*)data, (byte)len);
+    ELECHOUSE_cc1101.SpiStrobe(CC1101_STX);
+
+    // GDO0=0x06 rises when the hardware sync is sent and falls at packet end.
+    // Bound both waits so a radio/configuration problem cannot hang ESPHome.
+    const uint32_t start_ms = millis();
+    while (!digitalRead(gdo0_pin) && static_cast<uint32_t>(millis() - start_ms) < 250) {
+        delay(1);
+    }
+    if (!digitalRead(gdo0_pin)) {
+        ESP_LOGE(TAG, "TX timed out waiting for sync on GDO0");
+        ELECHOUSE_cc1101.SpiStrobe(CC1101_SIDLE);
+        ELECHOUSE_cc1101.SpiStrobe(CC1101_SFTX);
+        return;
+    }
+
+    const uint32_t packet_start_ms = millis();
+    while (digitalRead(gdo0_pin) && static_cast<uint32_t>(millis() - packet_start_ms) < 250) {
+        delay(1);
+    }
+    if (digitalRead(gdo0_pin))
+        ESP_LOGE(TAG, "TX timed out waiting for packet end on GDO0");
+
+    ELECHOUSE_cc1101.SpiStrobe(CC1101_SIDLE);
+    ELECHOUSE_cc1101.SpiStrobe(CC1101_SFTX);
     delay(10);
 }
 
 void QuietCool::configureTransmit() {
-    // Preserve the working packet-mode transmitter. The captured QuietCool
-    // preamble/sync bytes are part of the FIFO payload, not CC1101 framing.
+    // Match the known-working TX setup: hardware sends sync word 0x15AA,
+    // followed by the 20-byte payload (7x AA, remote ID, command, padding).
     ELECHOUSE_cc1101.setSidle();
     ELECHOUSE_cc1101.setPktFormat(0);
-    ELECHOUSE_cc1101.setSyncMode(0);
+    ELECHOUSE_cc1101.setSyncWord(0x15, 0xAA);
+    ELECHOUSE_cc1101.setSyncMode(1);
     ELECHOUSE_cc1101.setLengthConfig(0);
     ELECHOUSE_cc1101.setPacketLength(20);
     ELECHOUSE_cc1101.setAppendStatus(false);
-    // SendData waits on the packet-complete signal; learning changes GDO0 to
-    // synchronous serial data, so restore the packet-mode GDO0 function here.
+    // GDO0 signals sync transmission and end-of-packet in packet mode.
     ELECHOUSE_cc1101.SpiWriteReg(CC1101_IOCFG0, 0x06);
 }
 
@@ -380,7 +408,7 @@ bool QuietCool::receive(QuietCoolCommand &command) {
 }
 
 void QuietCool::sendPacket(const uint8_t cmd_code) {
-    const uint8_t padding_len = 2;
+    const uint8_t padding_len = 4;
     uint8_t full_cmd[SYNC_LEN + 7 + CMD_CODE_LEN+padding_len];
     memset(full_cmd, 0, sizeof(full_cmd));
     memcpy(full_cmd, SYNC, SYNC_LEN);
@@ -398,8 +426,11 @@ void QuietCool::sendPacket(const uint8_t cmd_code) {
 
 const uint8_t QuietCool::getCommand(QuietCoolSpeed speed, QuietCoolDuration duration) {
     ESP_LOGD(TAG, "getCommand got: speed=0x%02x, duration=0x%02x", speed, duration);
-    const uint8_t off = static_cast<uint8_t>(QUIETCOOL_DURATION_OFF) |
-                        static_cast<uint8_t>(QUIETCOOL_SPEED_LOW);
+    const uint8_t off = 0x80;
+    if (duration == QUIETCOOL_DURATION_OFF) {
+        ESP_LOGD(TAG, "OFF command: 0x80");
+        return off;
+    }
     switch (speed) {
     case QUIETCOOL_SPEED_HIGH:
     case QUIETCOOL_SPEED_MEDIUM:
@@ -478,7 +509,8 @@ bool QuietCool::initCC1101() {
     // Basic configuration
     ESP_LOGE(TAG, "Setting center frequency to %f MHz", center_freq_mhz);
     ELECHOUSE_cc1101.setMHZ(center_freq_mhz);
-    ELECHOUSE_cc1101.setPA(0);
+    // Match the 10 dBm power used by the physical remote and working TX path.
+    ELECHOUSE_cc1101.setPA(10);
 
     // Packet-related configuration
     ELECHOUSE_cc1101.setModulation(0);       // FSK
