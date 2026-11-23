@@ -265,6 +265,13 @@ deviation from 1 to 100 kHz in 0.5 kHz increments. Runtime changes are stored
 in ESPHome preferences and restored on later boots. YAML values are used when
 there is no saved value; `frequency_controls: {}` disables the controls.
 
+To find the best center frequency for your remote, leave deviation at **10 kHz**
+and adjust only **QuietCool Center Frequency** in small steps while sending a
+normal command from the physical remote. Watch the RF activity and fan state;
+use the center frequency where commands decode consistently and test
+transmissions work. The supported remotes use 10 kHz deviation, so do not tune
+the deviation control while searching for the center frequency.
+
 When the receiver hears a duplicated command frame for the configured remote
 ID that does not map to a supported fan speed/duration, the ESPHome activity
 logs show its raw command byte and remote ID. These frames do not change the
