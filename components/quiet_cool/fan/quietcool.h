@@ -1,6 +1,8 @@
 #pragma once
+#include <array>
 #include <stdint.h>
 #include <stddef.h>
+#include <vector>
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "quietcool_learning.h"
 
@@ -69,6 +71,8 @@ class QuietCool {
     volatile bool packet_ready_{false};
     uint8_t last_rx_code_{0};
     uint32_t last_rx_at_{0};
+    std::array<uint8_t, REMOTE_ID_LEN> last_rx_remote_id_{};
+    std::vector<std::array<uint8_t, REMOTE_ID_LEN>> additional_remote_ids_{};
     uint32_t rx_activity_count_{0};
     text_sensor::TextSensor *rx_activity_sensor_{nullptr};
     bool remote_listening_enabled_{true};
@@ -98,7 +102,9 @@ class QuietCool {
     void restartReceiver();
     void configureLearning();
     void stopLearning();
-    bool decodePayload(const uint8_t *payload, QuietCoolCommand &command) const;
+    bool matchesRemoteId(const uint8_t *payload, uint8_t *matched_remote_id) const;
+    bool decodePayload(const uint8_t *payload, QuietCoolCommand &command,
+                       const uint8_t *matched_remote_id) const;
     static int8_t decodeRssi(uint8_t raw_rssi);
 
   public:
@@ -108,6 +114,9 @@ class QuietCool {
     void sendCommand(uint8_t command_code);
     void setRemoteListeningEnabled(bool enabled) { this->remote_listening_enabled_ = enabled; }
     void setRemoteId(const uint8_t *remote_id);
+    void setAdditionalRemoteIds(const std::vector<std::array<uint8_t, REMOTE_ID_LEN>> &remote_ids) {
+        this->additional_remote_ids_ = remote_ids;
+    }
     void setRxActivitySensor(text_sensor::TextSensor *sensor) { this->rx_activity_sensor_ = sensor; }
     bool receive(QuietCoolCommand &command);
     bool startLearning();

@@ -127,8 +127,10 @@ fan:
     # deviation_khz: 10
     # Frequency controls are created automatically under HA Configuration.
     # To disable them, set frequency_controls: {}.
-    # Optional listener control; omitted by default:
-    # remote_listener: {}
+    # Optional listener switch and receive-only IDs; omitted by default:
+    # remote_listener:
+    #   additional_remote_ids:
+    #     - [0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE]
     # 0x66 polling controls are created automatically under HA Configuration.
     # To disable polling by default or change its interval:
     # status_polling:
@@ -172,7 +174,7 @@ fan:
 | `center_freq_mhz` | No       | float        | 433.897    | Center frequency in MHz for RF transmission.                                |
 | `deviation_khz`   | No       | float        | 10         | Frequency deviation (spread) in kHz for FSK modulation.                     |
 | `frequency_controls` | No    | map          | automatic  | Creates center-frequency and deviation controls under Configuration, even when YAML values are set. An explicit map selects controls and names; an empty map disables them. |
-| `remote_listener` | No       | entity       | omitted   | Optional Configuration switch to enable/ignore unsolicited physical-remote frames. This switch is created only when this parameter is present. When disabled, replies are still accepted for 2 seconds after sending command `0x66`. |
+| `remote_listener` | No       | map       | omitted   | Optional Configuration switch to enable/ignore unsolicited physical-remote frames. Add `additional_remote_ids` here to accept commands from more IDs. These IDs are receive-only; transmission and `0x66` polling use the primary `remote_id`. When disabled, primary-ID replies are still accepted for 2 seconds after a `0x66` query. |
 | `status_polling` | No       | map       | enabled, 30 seconds | Creates a Configuration switch to enable polling fan status with `0x66`, plus a poll-interval control. Polling starts 30 seconds after boot or enable; the adjustable interval range is 10 to 3600 seconds. Set `enabled: false` to disable polling by default. |
 | `timer` | No       | map       | disabled   | Enables the timer duration select and remaining-time sensor. The select offers no timer, 1, 2, 4, 8, or 12 hours. Received timer commands are decoded even when this option is omitted. |
 | `learn_button`    | No       | entity       | enabled   | Creates the `QuietCool Learn Remote` button under Configuration.            |
@@ -201,6 +203,11 @@ handheld remote from changing the Home Assistant fan state. The radio still
 receives during a short response window after a test button or polling sends
 `0x66`, so matching status replies can update the state. Without this YAML
 parameter, physical-remote listening stays enabled and no switch is created.
+List `additional_remote_ids` under `remote_listener` to accept state commands
+from other remotes. The IDs are receive-only; outgoing fan commands and status
+polling continue to use the primary `remote_id`. The current packet format
+matches the five-byte ID suffix visible in the received payload, so additional
+IDs should have distinct final five bytes.
 
 The `status_polling` block creates a Configuration switch for periodic `0x66`
 queries and an interval control in seconds. Polling is enabled by default at

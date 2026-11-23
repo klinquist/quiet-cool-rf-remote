@@ -144,7 +144,7 @@ void QuietCool::configureReceive() {
 }
 
 void QuietCool::startListening() {
-    if (!initialized_ || !remote_id_valid_)
+    if (!initialized_ || (!remote_id_valid_ && this->additional_remote_ids_.empty()))
         return;
 
     detachInterrupt(digitalPinToInterrupt(gdo2_pin));
@@ -159,9 +159,10 @@ void QuietCool::startListening() {
     attachInterrupt(digitalPinToInterrupt(gdo0_pin), QuietCool::handleGdo0Interrupt, FALLING);
     listening_ = true;
     mode_ = RadioMode::NORMAL_RX;
-    ESP_LOGD(TAG, "Listening for remote ID %02X:%02X:%02X:%02X:%02X:%02X:%02X",
+    ESP_LOGD(TAG, "Listening for primary remote ID %02X:%02X:%02X:%02X:%02X:%02X:%02X plus %u additional ID(s)",
              remote_id[0], remote_id[1], remote_id[2], remote_id[3],
-             remote_id[4], remote_id[5], remote_id[6]);
+             remote_id[4], remote_id[5], remote_id[6],
+             static_cast<unsigned>(this->additional_remote_ids_.size()));
 }
 
 void QuietCool::restartReceiver() {
@@ -235,7 +236,7 @@ void QuietCool::stopLearning() {
     detachInterrupt(digitalPinToInterrupt(gdo2_pin));
     ELECHOUSE_cc1101.setSidle();
     ELECHOUSE_cc1101.SpiStrobe(CC1101_SFRX);
-    if (remote_id_valid_) {
+    if (remote_id_valid_ || !this->additional_remote_ids_.empty()) {
         startListening();
     } else {
         mode_ = RadioMode::UNCONFIGURED;
@@ -335,25 +336,38 @@ int8_t QuietCool::decodeRssi(uint8_t raw_rssi) {
     return static_cast<int8_t>(signed_rssi / 2 - 74);
 }
 
-bool QuietCool::decodePayload(const uint8_t *payload, QuietCoolCommand &command) const {
-    if (memcmp(payload, remote_id + 2, REMOTE_ID_LEN - 2) != 0) {
-        ESP_LOGV(TAG, "Ignoring frame with non-matching remote ID suffix");
-        return false;
+bool QuietCool::matchesRemoteId(const uint8_t *payload, uint8_t *matched_remote_id) const {
+    if (this->remote_id_valid_ &&
+        memcmp(payload, this->remote_id + 2, REMOTE_ID_LEN - 2) == 0) {
+        memcpy(matched_remote_id, this->remote_id, REMOTE_ID_LEN);
+        return true;
     }
+    for (const auto &candidate : this->additional_remote_ids_) {
+        if (memcmp(payload, candidate.data() + 2, REMOTE_ID_LEN - 2) == 0) {
+            memcpy(matched_remote_id, candidate.data(), REMOTE_ID_LEN);
+            return true;
+        }
+    }
+    return false;
+}
 
+bool QuietCool::decodePayload(const uint8_t *payload, QuietCoolCommand &command,
+                              const uint8_t *matched_remote_id) const {
     const uint8_t command_code = payload[REMOTE_ID_LEN - 2];
     const uint8_t repeated_code = payload[REMOTE_ID_LEN - 1];
     if (command_code != repeated_code) {
         ESP_LOGW(TAG, "Received mismatched command bytes %02X != %02X from remote ID %02X:%02X:%02X:%02X:%02X:%02X:%02X",
-                 command_code, repeated_code, remote_id[0], remote_id[1], remote_id[2],
-                 remote_id[3], remote_id[4], remote_id[5], remote_id[6]);
+                 command_code, repeated_code, matched_remote_id[0], matched_remote_id[1],
+                 matched_remote_id[2], matched_remote_id[3], matched_remote_id[4],
+                 matched_remote_id[5], matched_remote_id[6]);
         return false;
     }
 
     if (command_code == 0x66) {
         ESP_LOGI(TAG, "Received QuietCool setup command 0x66 from remote ID %02X:%02X:%02X:%02X:%02X:%02X:%02X; leaving fan state unchanged",
-                 remote_id[0], remote_id[1], remote_id[2], remote_id[3],
-                 remote_id[4], remote_id[5], remote_id[6]);
+                 matched_remote_id[0], matched_remote_id[1], matched_remote_id[2],
+                 matched_remote_id[3], matched_remote_id[4], matched_remote_id[5],
+                 matched_remote_id[6]);
         return false;
     }
 
@@ -367,8 +381,9 @@ bool QuietCool::decodePayload(const uint8_t *payload, QuietCoolCommand &command)
         default:
             // 0x66 is a setup/pre-command and does not represent fan state.
             ESP_LOGI(TAG, "Received unknown/non-state QuietCool command 0x%02X from remote ID %02X:%02X:%02X:%02X:%02X:%02X:%02X; leaving fan state unchanged",
-                     command_code, remote_id[0], remote_id[1], remote_id[2], remote_id[3],
-                     remote_id[4], remote_id[5], remote_id[6]);
+                     command_code, matched_remote_id[0], matched_remote_id[1],
+                     matched_remote_id[2], matched_remote_id[3], matched_remote_id[4],
+                     matched_remote_id[5], matched_remote_id[6]);
             return false;
     }
 
@@ -385,8 +400,9 @@ bool QuietCool::decodePayload(const uint8_t *payload, QuietCoolCommand &command)
             break;
         default:
             ESP_LOGI(TAG, "Received unknown QuietCool command 0x%02X with unsupported duration from remote ID %02X:%02X:%02X:%02X:%02X:%02X:%02X; leaving fan state unchanged",
-                     command_code, remote_id[0], remote_id[1], remote_id[2], remote_id[3],
-                     remote_id[4], remote_id[5], remote_id[6]);
+                     command_code, matched_remote_id[0], matched_remote_id[1],
+                     matched_remote_id[2], matched_remote_id[3], matched_remote_id[4],
+                     matched_remote_id[5], matched_remote_id[6]);
             return false;
     }
 
@@ -425,8 +441,11 @@ bool QuietCool::receive(QuietCoolCommand &command) {
     const uint32_t now = millis();
     const bool awaiting_query_response =
         static_cast<int32_t>(this->query_response_until_ - now) > 0;
-    const bool matching_id = memcmp(frame, remote_id + 2, REMOTE_ID_LEN - 2) == 0;
-    if (!this->remote_listening_enabled_ && !awaiting_query_response) {
+    uint8_t matched_remote_id[REMOTE_ID_LEN]{};
+    const bool matching_id = this->matchesRemoteId(frame, matched_remote_id);
+    const bool primary_query_response = awaiting_query_response && this->remote_id_valid_ &&
+        memcmp(frame, remote_id + 2, REMOTE_ID_LEN - 2) == 0;
+    if (!this->remote_listening_enabled_ && !primary_query_response) {
         if (matching_id)
             ESP_LOGD(TAG, "Ignoring RF frame 0x%02X while physical remote listening is disabled",
                      frame[REMOTE_ID_LEN - 2]);
@@ -436,7 +455,7 @@ bool QuietCool::receive(QuietCoolCommand &command) {
     command.rssi_dbm = decodeRssi(frame[RX_PAYLOAD_LEN]);
     command.lqi = frame[RX_PAYLOAD_LEN + 1] & 0x7F;
     command.code = frame[REMOTE_ID_LEN - 2];
-    const bool decoded = decodePayload(frame, command);
+    const bool decoded = matching_id && decodePayload(frame, command, matched_remote_id);
     if (matching_id && this->rx_activity_sensor_ != nullptr) {
         const uint8_t command_code = frame[REMOTE_ID_LEN - 2];
         const uint8_t repeated_code = frame[REMOTE_ID_LEN - 1];
@@ -445,22 +464,26 @@ bool QuietCool::receive(QuietCoolCommand &command) {
         if (command_code != repeated_code) {
             snprintf(activity, sizeof(activity), "#%lu malformed command bytes 0x%02X/0x%02X from ID %02X:%02X:%02X:%02X:%02X:%02X:%02X",
                      static_cast<unsigned long>(sequence), command_code, repeated_code,
-                     remote_id[0], remote_id[1], remote_id[2], remote_id[3],
-                     remote_id[4], remote_id[5], remote_id[6]);
+                     matched_remote_id[0], matched_remote_id[1], matched_remote_id[2],
+                     matched_remote_id[3], matched_remote_id[4], matched_remote_id[5],
+                     matched_remote_id[6]);
         } else if (command_code == 0x66) {
             snprintf(activity, sizeof(activity), "#%lu setup command 0x66 from ID %02X:%02X:%02X:%02X:%02X:%02X:%02X",
-                     static_cast<unsigned long>(sequence), remote_id[0], remote_id[1],
-                     remote_id[2], remote_id[3], remote_id[4], remote_id[5], remote_id[6]);
+                     static_cast<unsigned long>(sequence), matched_remote_id[0], matched_remote_id[1],
+                     matched_remote_id[2], matched_remote_id[3], matched_remote_id[4],
+                     matched_remote_id[5], matched_remote_id[6]);
         } else if (decoded) {
             snprintf(activity, sizeof(activity), "#%lu command 0x%02X from ID %02X:%02X:%02X:%02X:%02X:%02X:%02X",
                      static_cast<unsigned long>(sequence), command_code,
-                     remote_id[0], remote_id[1], remote_id[2], remote_id[3],
-                     remote_id[4], remote_id[5], remote_id[6]);
+                     matched_remote_id[0], matched_remote_id[1], matched_remote_id[2],
+                     matched_remote_id[3], matched_remote_id[4], matched_remote_id[5],
+                     matched_remote_id[6]);
         } else {
             snprintf(activity, sizeof(activity), "#%lu unknown command 0x%02X from ID %02X:%02X:%02X:%02X:%02X:%02X:%02X",
                      static_cast<unsigned long>(sequence), command_code,
-                     remote_id[0], remote_id[1], remote_id[2], remote_id[3],
-                     remote_id[4], remote_id[5], remote_id[6]);
+                     matched_remote_id[0], matched_remote_id[1], matched_remote_id[2],
+                     matched_remote_id[3], matched_remote_id[4], matched_remote_id[5],
+                     matched_remote_id[6]);
         }
         this->rx_activity_sensor_->publish_state(activity);
     }
@@ -468,16 +491,20 @@ bool QuietCool::receive(QuietCoolCommand &command) {
         return false;
 
     const bool duplicate = command.code == last_rx_code_ &&
+                           memcmp(matched_remote_id, this->last_rx_remote_id_.data(), REMOTE_ID_LEN) == 0 &&
                            static_cast<uint32_t>(now - last_rx_at_) < RX_DEDUP_WINDOW_MS;
     last_rx_code_ = command.code;
     last_rx_at_ = now;
+    memcpy(this->last_rx_remote_id_.data(), matched_remote_id, REMOTE_ID_LEN);
     if (duplicate) {
         ESP_LOGV(TAG, "Ignoring repeated remote frame 0x%02X", command.code);
         return false;
     }
 
-    ESP_LOGI(TAG, "Received remote command 0x%02X (RSSI %d dBm, LQI %u)",
-             command.code, command.rssi_dbm, command.lqi);
+    ESP_LOGI(TAG, "Received remote command 0x%02X from ID %02X:%02X:%02X:%02X:%02X:%02X:%02X (RSSI %d dBm, LQI %u)",
+             command.code, matched_remote_id[0], matched_remote_id[1], matched_remote_id[2],
+             matched_remote_id[3], matched_remote_id[4], matched_remote_id[5], matched_remote_id[6],
+             command.rssi_dbm, command.lqi);
     return true;
 }
 
@@ -621,7 +648,7 @@ bool QuietCool::begin(bool has_remote_id) {
     initialized_ = true;
     active_receiver_ = this;
     remote_id_valid_ = has_remote_id;
-    if (remote_id_valid_)
+    if (remote_id_valid_ || !this->additional_remote_ids_.empty())
         startListening();
     else {
         ELECHOUSE_cc1101.setSidle();

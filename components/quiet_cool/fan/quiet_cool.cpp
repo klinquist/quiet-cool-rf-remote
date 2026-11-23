@@ -109,6 +109,7 @@ namespace esphome {
                     this->sck_pin_, this->miso_pin_, this->mosi_pin_, remote_id_.data(),
                     center_freq_mhz, deviation_khz));
                 this->qc_->setRxActivitySensor(this->rx_activity_sensor_);
+                this->qc_->setAdditionalRemoteIds(this->additional_remote_ids_);
             }
 
             if (!this->qc_->begin(this->has_remote_id_)) {

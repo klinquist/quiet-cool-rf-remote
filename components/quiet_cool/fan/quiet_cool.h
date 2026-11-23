@@ -60,6 +60,15 @@ namespace esphome {
             void set_remote_listener_switch(switch_::Switch *listener_switch) {
                 this->remote_listener_switch_ = listener_switch;
             }
+            void set_additional_remote_ids(const std::vector<uint8_t> &flat_ids) {
+                this->additional_remote_ids_.clear();
+                for (size_t offset = 0; offset + 7 <= flat_ids.size(); offset += 7) {
+                    std::array<uint8_t, 7> id{};
+                    for (size_t i = 0; i < id.size(); i++)
+                        id[i] = flat_ids[offset + i];
+                    this->additional_remote_ids_.push_back(id);
+                }
+            }
             void set_status_polling_config(bool enabled, uint16_t interval_seconds) {
                 this->status_polling_enabled_ = enabled;
                 this->status_poll_interval_seconds_ = interval_seconds;
@@ -136,6 +145,7 @@ namespace esphome {
             uint32_t last_timer_sensor_publish_at_{0};
             QuietCoolDuration configured_timer_duration_{QUIETCOOL_DURATION_ON};
             std::array<uint8_t, 7> remote_id_{};
+            std::vector<std::array<uint8_t, 7>> additional_remote_ids_{};
             learning::Confirmation learning_confirmation_{};
             bool remote_id_configured_{false};
             bool has_remote_id_{false};

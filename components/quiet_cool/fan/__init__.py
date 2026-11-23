@@ -25,6 +25,7 @@ CONF_LEARNING_STATUS = "learning_status"
 CONF_RX_PACKET_SENSOR = "rx_packet_sensor"
 CONF_TEST_BUTTONS = "test_buttons"
 CONF_REMOTE_LISTENER = "remote_listener"
+CONF_ADDITIONAL_REMOTE_IDS = "additional_remote_ids"
 CONF_TIMER = "timer"
 CONF_TIMER_CONTROL = "control"
 CONF_TIMER_REMAINING = "remaining"
@@ -81,6 +82,10 @@ def validate_remote_id(value):
     return value
 
 
+def validate_remote_ids(value):
+    return [validate_remote_id(remote_id) for remote_id in cv.ensure_list(value)]
+
+
 CONFIG_SCHEMA = fan.fan_schema(QuietCoolFan).extend(
     {
         cv.GenerateID(CONF_OUTPUT_ID): cv.declare_id(QuietCoolFan),
@@ -96,7 +101,10 @@ CONFIG_SCHEMA = fan.fan_schema(QuietCoolFan).extend(
         cv.Optional(CONF_REMOTE_LISTENER): switch.switch_schema(
             QuietCoolRemoteListenerSwitch, entity_category="config"
         ).extend(
-            {cv.Optional(CONF_NAME, default="Listen to Physical Remote"): cv.string}
+            {
+                cv.Optional(CONF_NAME, default="Listen to Physical Remote"): cv.string,
+                cv.Optional(CONF_ADDITIONAL_REMOTE_IDS, default=[]): validate_remote_ids,
+            }
         ),
         cv.Optional(CONF_STATUS_POLLING, default={}): cv.Schema(
             {
@@ -225,7 +233,12 @@ async def to_code(config):
     cg.add(learn_button.set_parent(var))
 
     if CONF_REMOTE_LISTENER in config:
-        listener_switch = await switch.new_switch(config[CONF_REMOTE_LISTENER])
+        listener_config = config[CONF_REMOTE_LISTENER]
+        additional_remote_ids = listener_config[CONF_ADDITIONAL_REMOTE_IDS]
+        if additional_remote_ids:
+            flattened_ids = [byte for remote_id in additional_remote_ids for byte in remote_id]
+            cg.add(var.set_additional_remote_ids(flattened_ids))
+        listener_switch = await switch.new_switch(listener_config)
         cg.add(listener_switch.set_parent(var))
         cg.add(var.set_remote_listener_switch(listener_switch))
 
